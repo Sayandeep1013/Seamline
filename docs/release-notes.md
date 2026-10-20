@@ -1,5 +1,3 @@
-**Updates now come to you.** When a newer Seamline is published here, the level select shows a *New version → Download* card. Tap it, then open the downloaded file, and Android installs it over your current version. Your progress is kept. (You can turn the check off in Settings.)
+**Collisions you can see.** The ball now rolls right up to a piece in its way, touches it and bounces back; it no longer turns around early. The piece it hits wobbles with a soft knock, so you can tell what stopped it.
 
-**Install:** download the `.apk` below and open it. If you have v0.2.0 or older, uninstall it first (those builds used temporary keys). From v0.2.1 on, every update installs in place.
-
-Includes everything from v0.3.0: what looks solid is solid, perspective landings with real momentum, and the rebuilt Star level.
+**Install:** open the *New version → Download* card in the app, or download the `.apk` below. It installs over v0.3.1 and keeps your progress.

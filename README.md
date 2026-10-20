@@ -118,6 +118,7 @@ is in [`research/FEEL_AND_ATMOSPHERE.md`](research/FEEL_AND_ATMOSPHERE.md).
 
 | | |
 |---|---|
+| v0.3.2 | Continuous contact: the ball reaches the obstacle before bouncing, and the piece it hits wobbles and knocks |
 | v0.3.1 | In-app update check: the level select shows "New version → Download" when a newer release exists |
 | v0.3.0 | What looks solid is solid, perspective landings with real momentum, clearer Star level, glow and ripple fixes, permanent signing key |
 | v0.2.0 | Real falls, solid pieces, depth-correct crossings, shadows + depth tint, peek gesture; L7 re-laid for portrait; steady 60 fps on a mid-range phone |

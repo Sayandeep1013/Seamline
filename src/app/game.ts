@@ -944,11 +944,13 @@ export class Game {
         break;
       case 'bump': {
         this.speed = 0;
-        this.pauseFor = 0.18;
-        const f = frameAt(this.segment(this.world(), this.state.segId), this.state.dir, 0);
-        this.squash(vec(f.t), 0.14);
-        sound.bump();
-        haptic('tick');
+        this.pauseFor = 0.22;
+        const f = frameAt(this.segment(this.world(), this.state.segId), this.state.dir, this.state.dist);
+        // Squash against what it hit; a piece it hit wobbles and knocks, so the contact reads.
+        this.squash(vec(f.t), ev.piece ? 0.2 : 0.14);
+        const hitPiece = ev.piece ? this.pieces.get(ev.piece) : undefined;
+        if (hitPiece) { hitPiece.shake = 0.7; sound.thock(0.8, 240); haptic('light'); }
+        else { sound.bump(); haptic('tick'); }
         break;
       }
       case 'fall': {

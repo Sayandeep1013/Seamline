@@ -26,7 +26,8 @@ const MAX_BUMPS = 3;
 
 export type BallEvent =
   | { type: 'cross'; k: number; from: V3; to: V3; segId: string }
-  | { type: 'bump'; at: V3 }
+  /** Bounced back; `piece` is the movable piece it hit, if it hit one (so the game can make it react). */
+  | { type: 'bump'; at: V3; piece?: string }
   | { type: 'rest'; at: V3; pad: boolean }
   | { type: 'goal'; at: V3 }
   /**
@@ -80,10 +81,15 @@ export function advance(ball: BallState, world: BallWorld, distance: number): Ba
     const len = lengthOf(seg);
     const nextNode = seg.kind === 'straight' ? Math.min(Math.floor(ball.dist + EPS) + 1, len) : len;
     const step = nextNode - ball.dist;
-    // What looks solid is solid: the ball may not roll behind something drawn in front of it.
-    if (blockedAhead(world, seg, ball, nextNode)) {
+    // What looks solid is solid: the ball rolls right up to anything drawn in front of its path,
+    // touches it, and bounces back (it never slips behind it).
+    const contact = firstContact(world, seg, ball, nextNode, ball.dist + Math.min(step, remaining));
+    if (contact !== null) {
+      const moved = contact.dist > ball.dist + EPS;
+      ball.dist = contact.dist;
       const at = pointAt(seg, ball.dir, ball.dist);
-      if (ball.bumped) {
+      // Blocked both ways without moving: boxed in, so it waits for the player.
+      if (ball.bumped && !moved) {
         ball.mode = 'resting';
         events.push({ type: 'rest', at, pad: true });
         break;
@@ -96,7 +102,7 @@ export function advance(ball: BallState, world: BallWorld, distance: number): Ba
       ball.dir = (-ball.dir) as Dir;
       ball.dist = len - ball.dist;
       ball.bumped = true;
-      events.push({ type: 'bump', at });
+      events.push({ type: 'bump', at, piece: contact.hit.pieceId ?? undefined });
       break;
     }
     ball.bumped = false;
@@ -164,10 +170,12 @@ export function advance(ball: BallState, world: BallWorld, distance: number): Ba
 }
 
 /**
- * Would the ball, rolling on to `nextNode`, pass behind a solid that is drawn in front of it?
- * The track it's on, its physical neighbours and whatever it's about to join are exempt.
+ * Rolling from the ball's position to distance `to` (no further than `nextNode`), where does it first
+ * touch a solid drawn in front of its path? Returns that distance, or null if the way is clear.
+ * The track it's on, its physical neighbours, whatever it joins at either end (in this view), what it's
+ * about to enter and what it just came from are exempt: seams are exactly where those overlap on screen.
  */
-function blockedAhead(world: BallWorld, seg: Segment, ball: BallState, nextNode: number): boolean {
+function firstContact(world: BallWorld, seg: Segment, ball: BallState, nextNode: number, to: number): { dist: number; hit: Segment } | null {
   const len = lengthOf(seg);
   let target: Continuation | null = null;
   if (nextNode >= len - EPS) {
@@ -177,9 +185,7 @@ function blockedAhead(world: BallWorld, seg: Segment, ball: BallState, nextNode:
     const t = ball.dir === 1 ? seg.t0 : exitOf(seg, -1).t;
     target = findContinuation(world, { p: nodePoint(seg, ball.dir, nextNode), t, n: seg.n0 }, seg, true);
   }
-  // Exempt: this track, its physical neighbours, whatever it joins at either end (in this view),
-  // what the ball is about to enter, and what it just came from. Seams are where these overlap on screen.
-  const exempt = new Set<string>([seg.id]);
+  const exempt = new Set<string>();
   const exemptPieces = new Set<string>();
   const add = (o: Segment | undefined) => { if (o) { exempt.add(o.id); if (o.pieceId) exemptPieces.add(o.pieceId); } };
   add(seg);
@@ -193,12 +199,16 @@ function blockedAhead(world: BallWorld, seg: Segment, ball: BallState, nextNode:
   const solids = world.segments.filter((o) =>
     !exempt.has(o.id) && !touches(o) &&
     !(o.pieceId && (world.moving.has(o.pieceId) || exemptPieces.has(o.pieceId))));
-  if (!solids.length) return false;
-  for (let i = 1; i <= 3; i++) {
-    const d = ball.dist + ((nextNode - ball.dist) * i) / 3;
-    if (blockedAt(pointAt(seg, ball.dir, d), solids, world.view)) return true;
+  if (!solids.length) return null;
+  // Fine steps so the ball visibly reaches the obstacle before bouncing.
+  const from = ball.dist;
+  const n = Math.max(1, Math.ceil((to - from) / 0.06));
+  for (let i = 0; i <= n; i++) {
+    const d = from + ((to - from) * i) / n;
+    const hit = blockedAt(pointAt(seg, ball.dir, d), solids, world.view);
+    if (hit) return { dist: Math.max(from, d - (i === 0 ? 0 : (to - from) / n)), hit };
   }
-  return false;
+  return null;
 }
 
 /**
