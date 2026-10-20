@@ -12,6 +12,7 @@ import { sound } from './audio/sound';
 import { validateLevel } from './core/level';
 import { Stage } from './render/scene';
 import { Ui } from './ui/hud';
+import { type Update, checkForUpdate, openUpdate } from './app/updates';
 
 LEVELS.forEach(validateLevel);
 
@@ -19,6 +20,7 @@ async function main() {
   const [settings, progress] = await Promise.all([loadSettings(), loadProgress()]);
   const stage = new Stage(document.getElementById('stage') as HTMLCanvasElement);
   let current = Math.min(Object.keys(progress.solved).length, LEVELS.length - 1);
+  let update: Update | null = null;
   let game: Game;
 
   const applySettings = (s: Settings) => {
@@ -51,7 +53,13 @@ async function main() {
       else { ui.renderLevels(tiles(), current); ui.show('levels'); }
     },
     onReplay: () => game.restart(),
-    onSettings: (s) => { Object.assign(settings, s); applySettings(s); void saveSettings(s); },
+    onSettings: (s) => {
+      Object.assign(settings, s);
+      applySettings(s);
+      void saveSettings(s);
+      if (!s.updates) ui.showUpdate(null); else void refreshUpdate();
+    },
+    onUpdate: () => { if (update) void openUpdate(update); },
   });
 
   function load(i: number) {
@@ -75,6 +83,14 @@ async function main() {
       Object.assign(window, { __seamline: game.debug(), __game: game, __load: load });
     }
   }
+
+  /** Ask GitHub for a newer release (quietly; offline or turned off means nothing happens). */
+  async function refreshUpdate() {
+    if (!settings.updates) return;
+    update = await checkForUpdate(location.search.includes('update-test'));
+    ui.showUpdate(update?.version ?? null);
+  }
+  void refreshUpdate();
 
   // The title sits over the first unsolved level, idling.
   load(current);

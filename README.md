@@ -70,7 +70,9 @@ elbows, line up the Star and turn the world until an impossible path exists, the
 2. Open it. Android asks once to allow installs from your browser or file manager; allow it, then install.
 3. Play in portrait. Drag beams, tap elbows, swipe to turn, tap the ball.
 
-Android 7.0 or newer. The app asks for no permissions and never goes online. Progress and settings stay on the phone.
+Android 7.0 or newer. The only network request is an optional update check: on launch it asks GitHub's
+public API whether a newer release exists and offers a download (turn it off in Settings). Progress and settings
+stay on the phone.
 The APK is built and signed by GitHub Actions from this repository. Nothing native is built locally. From v0.2.1 on, every
 release uses the same key, so updates install over the previous version and keep your progress.
 
@@ -116,6 +118,7 @@ is in [`research/FEEL_AND_ATMOSPHERE.md`](research/FEEL_AND_ATMOSPHERE.md).
 
 | | |
 |---|---|
+| v0.3.1 | In-app update check: the level select shows "New version → Download" when a newer release exists |
 | v0.3.0 | What looks solid is solid, perspective landings with real momentum, clearer Star level, glow and ripple fixes, permanent signing key |
 | v0.2.0 | Real falls, solid pieces, depth-correct crossings, shadows + depth tint, peek gesture; L7 re-laid for portrait; steady 60 fps on a mid-range phone |
 | v0.1.0 | Chapter 1 (7 levels), slide / rotate / turn-the-world / rest pads, the Star, hints, settings, saved progress, Android APK |

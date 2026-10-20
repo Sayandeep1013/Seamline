@@ -26,6 +26,7 @@ export interface UiHandlers {
   onNext(): void;
   onReplay(): void;
   onSettings(s: Settings): void;
+  onUpdate(): void;
 }
 
 export class Ui {
@@ -44,6 +45,7 @@ export class Ui {
       <section class="screen levels hidden" data-s="levels" aria-label="Choose a level">
         <header><span class="chapter">Chapter 1</span><h2>Mustard</h2></header>
         <div class="grid"></div>
+        <button class="update hidden" data-a="update"><b>New version</b><span class="uv"></span><i>Download</i></button>
         <footer><button class="btn" data-a="settings" aria-label="Settings">${icon.settings}</button></footer>
       </section>
 
@@ -78,7 +80,8 @@ export class Ui {
         ${this.toggle('music', 'Music')}
         ${this.toggle('haptics', 'Vibration')}
         ${this.toggle('reduceMotion', 'Reduce motion')}
-        <p class="credit">Seamline · made with calm</p>
+        ${this.toggle('updates', 'Check for updates')}
+        <p class="credit">Seamline v${__APP_VERSION__} · made with calm</p>
       </section>`;
     for (const k of ['title', 'levels', 'hud']) this.el[k] = root.querySelector(`[data-s="${k}"]`)!;
     for (const c of ['grid', 'tip', 'card', 'stats', 'num', 'name', 'moves', 'hint-btn', 'sheet', 'sheet-scrim', 'card-title']) {
@@ -101,6 +104,7 @@ export class Ui {
         case 'replay': this.hideResult(); h.onReplay(); break;
         case 'settings': this.openSettings(true); break;
         case 'close-settings': this.openSettings(false); break;
+        case 'update': h.onUpdate(); break;
       }
     });
     root.querySelectorAll<HTMLInputElement>('input[type=checkbox]').forEach((box) =>
@@ -185,6 +189,13 @@ export class Ui {
     this.syncToggles();
     this.el.sheet.classList.toggle('hidden', !open);
     this.el['sheet-scrim'].classList.toggle('hidden', !open);
+  }
+
+  /** Show (or hide, with null) the "new version" card on the level select. */
+  showUpdate(version: string | null) {
+    const el = this.root.querySelector<HTMLElement>('.update')!;
+    el.classList.toggle('hidden', !version);
+    if (version) el.querySelector('.uv')!.textContent = `v${version}`;
   }
 
   get settingsOpen() {

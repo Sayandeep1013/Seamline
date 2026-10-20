@@ -1,8 +1,5 @@
-Playtest fixes: the ball now respects what you see.
+**Updates now come to you.** When a newer Seamline is published here, the level select shows a *New version → Download* card. Tap it, then open the downloaded file, and Android installs it over your current version. Your progress is kept. (You can turn the check off in Settings.)
 
-**Install:** download the `.apk` below and open it. If you have v0.2.0 or older, uninstall it first (those builds used temporary keys). From this version on, updates install in place and keep your progress.
+**Install:** download the `.apk` below and open it. If you have v0.2.0 or older, uninstall it first (those builds used temporary keys). From v0.2.1 on, every update installs in place.
 
-- **What looks solid is solid:** the ball can no longer slip behind a piece drawn in front of it. It bumps off instead (for example, a misplaced elbow in Turn)
-- **Perspective landing:** a ball rolling off an edge drops straight down the screen onto whatever appears beneath it, keeping its momentum. If nothing's there, it fades and drops back onto its socket
-- **The Star** is rebuilt: one pillar, a star on a short rail, and exactly one stop that works
-- The ball covers the seam glow as it rolls over, and the goal ripple comes from the bowl
+Includes everything from v0.3.0: what looks solid is solid, perspective landings with real momentum, and the rebuilt Star level.

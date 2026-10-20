@@ -7,10 +7,10 @@ import { StatusBar } from '@capacitor/status-bar';
 
 export const isNative = Capacitor.isNativePlatform();
 
-export interface Settings { sound: boolean; music: boolean; haptics: boolean; reduceMotion: boolean | null }
+export interface Settings { sound: boolean; music: boolean; haptics: boolean; reduceMotion: boolean | null; updates: boolean }
 export interface Progress { solved: Record<string, number> }
 
-const DEFAULT_SETTINGS: Settings = { sound: true, music: true, haptics: true, reduceMotion: null };
+const DEFAULT_SETTINGS: Settings = { sound: true, music: true, haptics: true, reduceMotion: null, updates: true };
 
 async function load<T>(key: string, fallback: T): Promise<T> {
   try {
