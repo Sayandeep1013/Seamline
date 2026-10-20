@@ -13,6 +13,9 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      SEAMLINE_VERSION_CODE: ${{ github.run_number }}
+      HAS_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -31,16 +34,45 @@ jobs:
       - run: npm run build
       - run: npx cap sync android
 
-      - name: Build APK
+      # The permanent release key (GitHub Secrets) signs every build, so updates install over each other.
+      - name: Load signing key
+        if: env.HAS_KEY == 'true'
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/seamline.p12"
+          echo "SEAMLINE_KEYSTORE=$RUNNER_TEMP/seamline.p12" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        if: env.HAS_KEY == 'true'
+        working-directory: android
+        env:
+          SEAMLINE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SEAMLINE_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SEAMLINE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then ./gradlew bundleRelease --no-daemon; fi
+          cp app/build/outputs/apk/release/app-release.apk ../app.apk
+
+      - name: Build debug APK (no key available)
+        if: env.HAS_KEY != 'true'
         working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../app.apk
+
+      - name: Show the signing certificate
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs app.apk | grep -E "Signer #1 certificate (DN|SHA-256)"
 
       - name: Name the APK
         run: |
           NAME=seamline-${GITHUB_REF_NAME//\//-}.apk
-          cp android/app/build/outputs/apk/debug/app-debug.apk "$NAME"
+          mv app.apk "$NAME"
           echo "APK=$NAME" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v7
@@ -48,6 +80,13 @@ jobs:
           name: seamline-apk
           path: ${{ env.APK }}
           retention-days: 30
+
+      - uses: actions/upload-artifact@v7
+        if: startsWith(github.ref, 'refs/tags/v') && env.HAS_KEY == 'true'
+        with:
+          name: seamline-aab
+          path: android/app/build/outputs/bundle/release/*.aab
+          retention-days: 90
 
       # A version tag publishes a GitHub Release with the APK attached.
       - name: Publish release

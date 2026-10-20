@@ -7,8 +7,9 @@ android {
         applicationId "com.sayandeep.seamline"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "0.2.0"
+        // CI passes its run number so every build installs over the previous one.
+        versionCode (System.getenv("SEAMLINE_VERSION_CODE") ?: "2").toInteger()
+        versionName "0.2.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +17,25 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // The permanent release key arrives from GitHub Secrets as environment variables (CI only).
+    // Without them (e.g. a fork's CI), release builds stay unsigned and debug builds use the debug key.
+    def keystore = System.getenv("SEAMLINE_KEYSTORE")
+    signingConfigs {
+        if (keystore) {
+            seamline {
+                storeFile file(keystore)
+                storeType "pkcs12"
+                storePassword System.getenv("SEAMLINE_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("SEAMLINE_KEY_ALIAS")
+                keyPassword System.getenv("SEAMLINE_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystore) signingConfig signingConfigs.seamline
         }
     }
 }

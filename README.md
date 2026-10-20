@@ -68,7 +68,8 @@ elbows, line up the Star and turn the world until an impossible path exists, the
 3. Play in portrait. Drag beams, tap elbows, swipe to turn, tap the ball.
 
 Android 7.0 or newer. The app asks for no permissions and never goes online. Progress and settings stay on the phone.
-The APK is built by GitHub Actions from this repository. Nothing native is built locally.
+The APK is built and signed by GitHub Actions from this repository. Nothing native is built locally. From v0.2.1 on, every
+release uses the same key, so updates install over the previous version and keep your progress.
 
 ## Building from source
 

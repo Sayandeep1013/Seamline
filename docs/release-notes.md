@@ -1,10 +1,6 @@
-Physics and depth update.
+Signed with Seamline's permanent release key.
 
-**Install:** download the `.apk` below on your Android phone and open it. This build is signed with a new CI debug key, so if Android refuses to update over v0.1.0, uninstall the old version first. That resets your progress.
+**Install:** download the `.apk` below on your Android phone and open it.
 
-- **Real falls:** an unjoined edge drops the ball with gravity onto whatever is really below it, or into the void and back to the start
-- **Solid pieces:** drags and rotations stop against track, other pieces and the ball; nothing passes through
-- **Depth:** soft shadows, solid shading, depth haze (joined pieces share a tone), and a two-finger **peek** that shows the true 3D
-- Crossings draw the ball at the right depth (no more x-ray)
-- Monument re-laid for portrait; every level re-verified by the solver with the new rules
-- Rolling, falling and landing sounds; squash on bumps and landings
+- **One-time step:** builds before v0.2.1 used throwaway keys. If Android refuses to install over an older Seamline, uninstall it first. From v0.2.1 on, every update installs in place and keeps your progress.
+- This is a release build (smaller and faster), and the same game as v0.2.0: real falls, solid pieces, depth cues and the peek gesture.
