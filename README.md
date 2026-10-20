@@ -35,7 +35,10 @@ elbows, line up the Star and turn the world until an impossible path exists, the
   and obeys real physics wherever there's no join. It falls off open edges and lands on whatever is really
   below. If nothing is, it drifts back to the start. It bumps softly at capped ends. There are no timers,
   no lives and no fail screens.
-- **Everything is solid.** Pieces stop against track, other pieces and the ball instead of passing through.
+- **What looks solid is solid.** Pieces stop against track, other pieces and the ball. And because what you
+  see is what's real, the ball can't slip behind anything drawn in front of it: it bumps off instead.
+- **Falls follow your eyes.** A ball rolling off an edge drops straight down the screen and lands on whatever
+  appears beneath it, at any depth.
 - **Your moves:**
   - **slide** beams and the Star along their dotted rails;
   - **tap** an elbow to turn it a quarter;
@@ -113,6 +116,7 @@ is in [`research/FEEL_AND_ATMOSPHERE.md`](research/FEEL_AND_ATMOSPHERE.md).
 
 | | |
 |---|---|
+| v0.3.0 | What looks solid is solid, perspective landings with real momentum, clearer Star level, glow and ripple fixes, permanent signing key |
 | v0.2.0 | Real falls, solid pieces, depth-correct crossings, shadows + depth tint, peek gesture; L7 re-laid for portrait; steady 60 fps on a mid-range phone |
 | v0.1.0 | Chapter 1 (7 levels), slide / rotate / turn-the-world / rest pads, the Star, hints, settings, saved progress, Android APK |
 | Next | Penrose loop and perspective-landing levels, Chapter 2 palette, a signed Play Store build |

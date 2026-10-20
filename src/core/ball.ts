@@ -1,7 +1,8 @@
 // Deterministic ball path follower (GAME_PLAN §4.4). Not a physics simulation.
 import { type Continuation, type JoinWorld, findContinuation } from './joins';
 import { type Dir, type Segment, exitOf, lengthOf, pointAt } from './track';
-import { AXES, type Axis, type V3, add, key, scale } from './grid';
+import { AXES, type Axis, type V3, VIEWS, add, eq, key, scale } from './grid';
+import { blockedAt } from './screen';
 
 export type BallMode = 'resting' | 'rolling' | 'won';
 
@@ -13,15 +14,27 @@ export interface BallState {
   mode: BallMode;
   /** Rest pad the ball is leaving; ignored until the ball reaches another node. */
   leaving?: string;
+  /** Set by a bump; a second bump without moving in between means the ball is boxed in, so it waits. */
+  bumped?: boolean;
+  /** The segment the ball crossed from; it never counts as being in the way. */
+  prev?: string;
+  /** Bumps since the ball was last released; past a few it gives up and waits (never ping-pongs forever). */
+  bumps?: number;
 }
+
+const MAX_BUMPS = 3;
 
 export type BallEvent =
   | { type: 'cross'; k: number; from: V3; to: V3; segId: string }
   | { type: 'bump'; at: V3 }
   | { type: 'rest'; at: V3; pad: boolean }
   | { type: 'goal'; at: V3 }
-  /** Rolled off an open end: lands at `to` (rolling on, or settling), or is lost and returns to the start. */
-  | { type: 'fall'; from: V3; to: V3; result: 'roll' | 'settle' | 'lost' };
+  /**
+   * Rolled off an open end. It falls straight down the screen and lands at `to`, the first surface that
+   * appears beneath it (rolling on, or settling), or is lost and returns to the start. `k` is the depth
+   * jump of that perspective landing: `from + k·v` is the same screen point at the landing's depth.
+   */
+  | { type: 'fall'; from: V3; to: V3; k: number; result: 'roll' | 'settle' | 'lost' };
 
 export interface BallWorld extends JoinWorld {
   pads: ReadonlySet<string>;
@@ -38,6 +51,7 @@ function segById(world: JoinWorld, id: string): Segment {
 }
 
 function enter(ball: BallState, c: Continuation, from: V3, events: BallEvent[]) {
+  ball.prev = ball.segId;
   ball.segId = c.seg.id;
   ball.dir = c.dir;
   ball.dist = c.dist;
@@ -66,6 +80,26 @@ export function advance(ball: BallState, world: BallWorld, distance: number): Ba
     const len = lengthOf(seg);
     const nextNode = seg.kind === 'straight' ? Math.min(Math.floor(ball.dist + EPS) + 1, len) : len;
     const step = nextNode - ball.dist;
+    // What looks solid is solid: the ball may not roll behind something drawn in front of it.
+    if (blockedAhead(world, seg, ball, nextNode)) {
+      const at = pointAt(seg, ball.dir, ball.dist);
+      if (ball.bumped) {
+        ball.mode = 'resting';
+        events.push({ type: 'rest', at, pad: true });
+        break;
+      }
+      if ((ball.bumps = (ball.bumps ?? 0) + 1) > MAX_BUMPS) {
+        ball.mode = 'resting';
+        events.push({ type: 'rest', at, pad: true });
+        break;
+      }
+      ball.dir = (-ball.dir) as Dir;
+      ball.dist = len - ball.dist;
+      ball.bumped = true;
+      events.push({ type: 'bump', at });
+      break;
+    }
+    ball.bumped = false;
     if (remaining < step - EPS) {
       ball.dist += remaining;
       break;
@@ -116,6 +150,11 @@ export function advance(ball: BallState, world: BallWorld, distance: number): Ba
       break;
     }
     // Dead end (a capped end): bump softly and roll back.
+    if ((ball.bumps = (ball.bumps ?? 0) + 1) > MAX_BUMPS) {
+      ball.mode = 'resting';
+      events.push({ type: 'rest', at: here, pad: true });
+      break;
+    }
     ball.dir = (-ball.dir) as Dir;
     ball.dist = 0;
     events.push({ type: 'bump', at: here });
@@ -125,39 +164,82 @@ export function advance(ball: BallState, world: BallWorld, distance: number): Ba
 }
 
 /**
- * Real gravity (GAME_PLAN §4.4): leaving an open end horizontally, the ball carries one cell forward
- * while it drops; leaving downward, it drops straight. It lands on the highest floor node below that
- * column. Landing on a floor running the same way, it keeps rolling; otherwise it settles there and
- * waits. With nothing below, it's lost and returns to the start socket.
+ * Would the ball, rolling on to `nextNode`, pass behind a solid that is drawn in front of it?
+ * The track it's on, its physical neighbours and whatever it's about to join are exempt.
+ */
+function blockedAhead(world: BallWorld, seg: Segment, ball: BallState, nextNode: number): boolean {
+  const len = lengthOf(seg);
+  let target: Continuation | null = null;
+  if (nextNode >= len - EPS) {
+    const exit = exitOf(seg, ball.dir);
+    if (exit.flag === 'open') target = findContinuation(world, exit, seg);
+  } else {
+    const t = ball.dir === 1 ? seg.t0 : exitOf(seg, -1).t;
+    target = findContinuation(world, { p: nodePoint(seg, ball.dir, nextNode), t, n: seg.n0 }, seg, true);
+  }
+  // Exempt: this track, its physical neighbours, whatever it joins at either end (in this view),
+  // what the ball is about to enter, and what it just came from. Seams are where these overlap on screen.
+  const exempt = new Set<string>([seg.id]);
+  const exemptPieces = new Set<string>();
+  const add = (o: Segment | undefined) => { if (o) { exempt.add(o.id); if (o.pieceId) exemptPieces.add(o.pieceId); } };
+  add(seg);
+  add(target?.seg);
+  add(world.segments.find((o) => o.id === ball.prev));
+  for (const d of [1, -1] as const) {
+    const e = exitOf(seg, d);
+    if (e.flag === 'open') add(findContinuation(world, e, seg)?.seg);
+  }
+  const touches = (o: Segment) => [o.from, o.to].some((a) => eq(a, seg.from) || eq(a, seg.to));
+  const solids = world.segments.filter((o) =>
+    !exempt.has(o.id) && !touches(o) &&
+    !(o.pieceId && (world.moving.has(o.pieceId) || exemptPieces.has(o.pieceId))));
+  if (!solids.length) return false;
+  for (let i = 1; i <= 3; i++) {
+    const d = ball.dist + ((nextNode - ball.dist) * i) / 3;
+    if (blockedAt(pointAt(seg, ball.dir, d), solids, world.view)) return true;
+  }
+  return false;
+}
+
+/**
+ * Falling (GAME_PLAN §4.6, perspective landing): the ball drops straight down the *screen*. Leaving an end
+ * horizontally it carries one cell forward first; leaving downward it drops straight. It lands on the first
+ * floor that appears beneath it on screen, at whatever depth (q = col − d·ŷ + k·v, smallest d > 0, ties
+ * nearest the camera). On a floor running the same way it keeps rolling; otherwise it settles and waits.
+ * With nothing beneath it on screen, it's lost and returns to the start socket.
  */
 function fall(ball: BallState, world: BallWorld, t: Axis, here: V3, events: BallEvent[]) {
   const col: V3 = t === '-y' ? here : add(here, AXES[t]);
-  let best: { seg: Segment; d: number; q: V3 } | null = null;
+  const v = VIEWS[world.view];
+  let best: { seg: Segment; d: number; q: V3; k: number; drop: number } | null = null;
   for (const s of world.segments) {
     if (s.kind !== 'straight' || s.n0 !== '+y' || s.t0[1] === 'y') continue;
     if (s.pieceId && world.moving.has(s.pieceId)) continue;
     const len = lengthOf(s);
     for (let d = 0; d <= len; d++) {
       const q = add(s.from, scale(AXES[s.t0], d));
-      if (q[0] !== col[0] || q[2] !== col[2] || q[1] >= here[1]) continue;
-      if (!best || q[1] > best.q[1]) best = { seg: s, d, q };
+      const k = (q[0] - col[0]) / v[0];
+      if (!Number.isInteger(k) || q[2] - col[2] !== k * v[2]) continue;
+      const drop = col[1] + k * v[1] - q[1];
+      if (drop <= 0) continue;
+      if (!best || drop < best.drop || (drop === best.drop && k > best.k)) best = { seg: s, d, q, k: k + 0, drop };
     }
   }
   if (!best) {
-    events.push({ type: 'fall', from: here, to: add(col, [0, -8, 0]), result: 'lost' });
-    Object.assign(ball, { segId: world.startSeg, dir: 1, dist: 0, mode: 'resting', leaving: undefined });
+    events.push({ type: 'fall', from: here, to: add(col, [0, -10, 0]), k: 0, result: 'lost' });
+    Object.assign(ball, { segId: world.startSeg, dir: 1, dist: 0, mode: 'resting', leaving: undefined, bumped: false });
     return;
   }
-  const { seg, d, q } = best;
+  const { seg, d, q, k } = best;
   const len = lengthOf(seg);
   if (t !== '-y' && seg.t0[1] === t[1]) {
     const dir: Dir = seg.t0 === t ? 1 : -1;
-    Object.assign(ball, { segId: seg.id, dir, dist: dir === 1 ? d : len - d, leaving: undefined });
-    events.push({ type: 'fall', from: here, to: q, result: 'roll' });
+    Object.assign(ball, { segId: seg.id, dir, dist: dir === 1 ? d : len - d, leaving: undefined, bumped: false });
+    events.push({ type: 'fall', from: here, to: q, k, result: 'roll' });
     return;
   }
-  Object.assign(ball, { segId: seg.id, dir: 1, dist: d, mode: 'resting', leaving: key(q) });
-  events.push({ type: 'fall', from: here, to: q, result: 'settle' });
+  Object.assign(ball, { segId: seg.id, dir: 1, dist: d, mode: 'resting', leaving: key(q), bumped: false });
+  events.push({ type: 'fall', from: here, to: q, k, result: 'settle' });
 }
 
 /** What happens at the end the ball is heading for, without moving it. */
@@ -172,7 +254,7 @@ export type Outcome = 'goal' | 'rest' | 'loop';
 
 /** Release the ball and run until it reaches the goal, comes to rest, or is judged to loop forever. */
 export function simulate(world: BallWorld, start: BallState): { outcome: Outcome; ball: BallState; events: BallEvent[] } {
-  const ball: BallState = { ...start, mode: 'rolling' };
+  const ball: BallState = { ...start, mode: 'rolling', bumps: 0, bumped: false };
   const events: BallEvent[] = [];
   for (let i = 0; i < 4000; i++) {
     events.push(...advance(ball, world, 0.5));

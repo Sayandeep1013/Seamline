@@ -1,7 +1,7 @@
 # SEAMLINE — Game Plan & Handoff Document
 
 > **Working title:** *Seamline* (a ball flows "seamlessly" through joins that only exist from where you're looking).
-> **Status:** v0.2.0 (real falls, solid pieces, depth cues, peek). Chapter 1 has 7 solver-verified levels, playable in the browser and as a portrait Android app built by GitHub Actions. This document is the single source of truth.
+> **Status:** v0.3.0. What looks solid is solid, falls are perspective landings, and every build is signed with the permanent key. Chapter 1 has 7 solver-verified levels, playable in the browser and as a portrait Android app built by GitHub Actions. This document is the single source of truth.
 > **Last updated:** 2026-10-20
 > **Purpose of this file:** Paste this whole document into any new AI chat (or hand it to a developer) and they'll have everything needed to continue: concept, rules, math, levels, tech stack, assets, milestones, and open decisions.
 
@@ -124,6 +124,11 @@ For other views, rotate the world point around `y` by −90°·n first.
 - **Drop end** (open end, marked with a lip; from level 8) → the ball falls straight down **on screen** and lands on the first track surface beneath it on screen (**perspective landing**, §4.6). If there's nothing below, it fades out and respawns at the last rest point.
 - **Rest pads** (cradles; from level 6): the ball stops and waits. Tap the ball to continue.
 - **Goal:** a **chime bowl**. When the ball reaches it, the level is complete.
+
+### 4.4b What looks solid is solid (v0.3)
+- The ball may never roll *behind* a solid that is drawn in front of it. If any track or piece at least 0.7 units nearer the camera covers the ball's path on screen, the ball bumps there and rolls back. Exempt: the track it's on, its physical neighbours, whatever it joins at either end in this view, and what it just came from (seams are where these overlap on screen). Code: `src/core/screen.ts`.
+- **Falling is a perspective landing (§4.6) for every open end:** the ball drops straight down the screen and lands on the first floor drawn beneath it, at whatever depth. If nothing is there, it falls into the void, fades and drops back onto the start socket.
+- A ball that bounces more than 3 times without being released again stops and waits, so nothing ever ping-pongs forever.
 
 ### 4.5 Player verbs
 | Verb | Input | Applies to | Introduced |
@@ -538,3 +543,5 @@ adb install -r seamline-debug.apk       # after downloading the CI artifact
 | 2026-10-20 | v0.2 depth cues: soft warm shadows, darkened side faces, top-edge bevel, **depth tint with join-aware depth borrowing** (joined pieces share a tone, so seams stay invisible), and a two-finger **peek** (Space on desktop) that tilts to show the true depth with joins off. | The owner asked for more visual and 3D depth, including depth tint. |
 | 2026-10-20 | L7 redesigned as a vertical zigzag (the star plane is x, with a flat turn). Each view has its own framing, blended during turns. | L7 was too wide for portrait. |
 | 2026-10-20 | **Permanent release key** (PKCS12, RSA 4096, valid until 2056), made with openssl locally (no Java). It lives in GitHub Secrets (`ANDROID_KEYSTORE_BASE64`, `…_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`); the owner keeps the backup in `Documents\Seamline signing key`. CI now ships signed release APKs, with versionCode = run number. | Updates install over each other without losing progress; the Play Store requires a stable key. |
+| 2026-10-20 | v0.3: **what looks solid is solid** (screen-space blocking by anything in front), **perspective landing** for all falls, bump limit 3. L3 redesigned: one capped pillar and the star on a 4-stop rail, with exactly one winning stop (tested). L1's rail trimmed to 3 stops, so a drop can't bypass the lesson. | Owner playtest: the ball "glitches through" a misplaced elbow in L2, and L3 "is a mess, all phasing through". |
+| 2026-10-20 | v0.3 visual fixes: the ball draws after the seam glow (it covers the line); the goal ripple belongs to the bowl's piece (it follows a slid beam); falls keep their momentum under gravity 22 u/s², and a lost ball fades and drops back onto the socket. | Owner playtest on L1 and L2. |

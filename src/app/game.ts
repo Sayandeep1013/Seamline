@@ -28,6 +28,7 @@ const DRAG_SLOP = 10;        // px before a tap becomes a drag
 const SWIPE_MIN = 60;        // px for a view turn
 const BALL_TAP_PX = 48;      // tap radius around the ball, in CSS px
 const HINT_IDLE = 25;        // seconds before the hint button appears
+const GRAVITY = 22;          // world units per second², tuned so short drops read as weighty but quick
 /** Star arms taper to fine points at the tips and thicken toward the centre. */
 const STAR_DEPTH = (u: number) => 0.1 + 0.62 * Math.sin(Math.PI * u);
 
@@ -116,8 +117,12 @@ export class Game {
   private tone!: THREE.ShaderMaterial;
   /** Which side of a perceptual crossing is nearer the camera, for drawing the ball at that depth. */
   private crossK = 0;
-  private falling: { from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; result: 'roll' | 'settle' | 'lost' } | null = null;
+  private falling: {
+    pos: THREE.Vector3; vel: THREE.Vector3; to: THREE.Vector3; t: number; result: 'roll' | 'settle' | 'lost' | 'drop-in';
+  } | null = null;
   private pointers = new Map<number, THREE.Vector2>();
+  private lastSeg = '';
+  private lastDir: 1 | -1 = 1;
   private peeking = false;
   private peekTarget = 0;
   private dragRange: [number, number] = [0, 0];
@@ -302,7 +307,7 @@ export class Game {
     })));
     this.ring.renderOrder = 15;
     this.ring.position.copy(parts.surface).addScaledVector(vec(f.n), 0.16);
-    this.root.add(this.ring);
+    g.add(this.ring);
   }
 
   private buildBall() {
@@ -310,6 +315,10 @@ export class Game {
     this.ballShadow = new THREE.Mesh(
       this.keep(new THREE.PlaneGeometry(BALL_R * 2.6, BALL_R * 2.6)), this.keep(blobShadowMaterial(this.pal.shadow)));
     this.ballMesh.castShadow = true;
+    // Seam glows ignore depth; drawing the ball after them (transparent pass, later order) keeps it on top.
+    (this.ballMesh.material as THREE.ShaderMaterial).transparent = true;
+    this.ballMesh.renderOrder = 20;
+    this.ballShadow.renderOrder = 19;
     this.ball.add(this.ballMesh);
     this.root.add(this.ball, this.ballShadow);
   }
@@ -628,6 +637,8 @@ export class Game {
     if (this.released) { this.moves++; this.cb.onMoves(this.moves); }
     this.released = true;
     this.state.mode = 'rolling';
+    this.state.bumps = 0;
+    this.state.bumped = false;
     this.speed = 0;
     this.idle = 0;
     if (this.level.hint) this.clearGhostIfFor(this.level.hint.piece);
@@ -847,6 +858,8 @@ export class Game {
         let target = CRUISE * slope;
         if (next.flag === 'goal' || next.flag === 'start') target *= Math.max(0.22, Math.min(1, next.remaining / 0.7));
         this.speed = damp(this.speed, target, this.speed < target ? 5 : 9, dt);
+        this.lastSeg = this.state.segId;
+        this.lastDir = this.state.dir;
         for (const ev of advance(this.state, world, this.speed * dt)) this.onBallEvent(ev);
       }
     }
@@ -862,42 +875,54 @@ export class Game {
     sound.roll(this.state.mode === 'rolling' ? this.speed / CRUISE : 0);
   }
 
-  /** Gravity: horizontal speed carries the ball forward while it drops (or it drops into the void). */
+  /**
+   * Gravity with momentum. The ball keeps the speed it left the track with, accelerates down, and lands
+   * exactly on its target (drawn at the landing's depth, so the fall is straight down the screen).
+   * Lost balls fall away and fade; a respawn drops gently onto the start socket.
+   */
   private updateFall(dt: number) {
     const f = this.falling!;
-    f.t = Math.min(1, f.t + dt / f.dur);
-    const u = f.t;
-    const pos = f.from.clone().lerp(f.to, u);
-    pos.y = f.from.y + (f.to.y - f.from.y) * u * u;
-    const step = pos.clone().sub(this.ball.position);
+    f.t += dt;
+    f.vel.y -= GRAVITY * dt;
+    f.pos.addScaledVector(f.vel, dt);
+    const landed = f.result !== 'lost' && f.pos.y <= f.to.y;
+    if (landed) f.pos.copy(f.to);
+    // Roll on while falling.
+    const step = f.vel.clone().multiplyScalar(dt);
     this.tmpAxis.set(step.z, 0, -step.x);
-    if (this.tmpAxis.lengthSq() > 1e-8) {
+    if (this.tmpAxis.lengthSq() > 1e-10) {
       this.tmpAxis.normalize();
-      this.ballMesh.quaternion.premultiply(this.tmpQ.setFromAxisAngle(this.tmpAxis, (step.length() / BALL_R) * 0.6));
+      this.ballMesh.quaternion.premultiply(this.tmpQ.setFromAxisAngle(this.tmpAxis, Math.hypot(step.x, step.z) / BALL_R));
     }
-    this.ball.position.copy(pos);
-    this.lastBallPos.copy(pos);
-    // The contact shadow waits on the landing surface, growing as the ball comes down.
+    this.ball.position.copy(f.pos);
+    // The contact shadow waits on the landing surface, sharpening as the ball comes down.
     const sh = this.ballShadow;
     sh.visible = f.result !== 'lost';
-    sh.position.set(pos.x, f.to.y - BALL_R + 0.004, pos.z);
-    sh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0));
-    sh.scale.setScalar(0.4 + 0.6 * u);
-    if (f.result === 'lost') this.ball.scale.setScalar(Math.max(0.001, 1 - Math.max(0, u - 0.45) / 0.55));
-    if (f.t < 1) return;
-    this.falling = null;
-    sh.scale.setScalar(1);
-    sh.visible = true;
+    if (sh.visible) {
+      const h = Math.max(0, f.pos.y - f.to.y);
+      sh.position.set(f.pos.x, f.to.y - BALL_R + 0.004, f.pos.z);
+      sh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0));
+      sh.scale.setScalar(1 / (1 + h * 0.6));
+    }
     if (f.result === 'lost') {
-      // Back to the start socket, gently.
+      const fade = Math.min(1, Math.max(0, (f.t - 0.35) / 0.55));
+      this.ball.scale.setScalar(Math.max(0.001, 1 - fade));
+      if (f.t < 0.95) return;
+      // Back to the start socket: appear just above it and drop gently in.
       this.lowerHook();
+      this.ball.scale.setScalar(1);
       this.placeBall(true);
-      tween(0.001, 1, 0.4, (x) => this.ball.scale.setScalar(x), { ease: ease.outCubic, delay: 0.2 });
+      const rest = this.lastBallPos.clone();
+      this.falling = { pos: rest.clone().add(new THREE.Vector3(0, 1.4, 0)), vel: new THREE.Vector3(), to: rest, t: 0, result: 'drop-in' };
       sound.rest();
       return;
     }
+    if (!landed) return;
+    this.falling = null;
+    sh.scale.setScalar(1);
+    sh.visible = true;
     this.placeBall(true);
-    this.squash(new THREE.Vector3(0, 1, 0), 0.2);
+    this.squash(new THREE.Vector3(0, 1, 0), f.result === 'drop-in' ? 0.12 : 0.22);
     sound.land();
     haptic('light');
   }
@@ -927,10 +952,22 @@ export class Game {
         break;
       }
       case 'fall': {
-        const from = vec(ev.from), to = vec(ev.to);
-        const h = Math.max(0.3, from.y - to.y);
-        this.falling = { from, to, t: 0, dur: Math.min(1.1, Math.sqrt((2 * h) / 16) + 0.12), result: ev.result };
-        this.speed = ev.result === 'roll' ? this.speed * 0.6 : 0;
+        // Start the fall from the same screen point, at the landing's depth (moving along v is invisible).
+        const pos = vec(ev.from).add(vec(VIEWS[this.view]).multiplyScalar(ev.k));
+        const to = vec(ev.to);
+        const exitSeg = this.segment(this.world(), this.lastSeg);
+        const exit = frameAt(exitSeg, this.lastDir, lengthOf(exitSeg));
+        const speed = Math.max(this.speed, 0.8);
+        const vel = vec(exit.t).multiplyScalar(speed);
+        if (ev.result !== 'lost') {
+          // Solve the flight time for the drop, then aim the horizontal velocity at the landing point.
+          const h = pos.y - to.y, vy = vel.y;
+          const t = (vy + Math.sqrt(vy * vy + 2 * GRAVITY * Math.max(h, 0.05))) / GRAVITY;
+          vel.x = (to.x - pos.x) / t;
+          vel.z = (to.z - pos.z) / t;
+        }
+        this.falling = { pos, vel, to, t: 0, result: ev.result };
+        this.speed = ev.result === 'roll' ? speed * 0.6 : 0;
         this.overlayAfter = 0;
         sound.fall();
         break;

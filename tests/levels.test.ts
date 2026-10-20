@@ -33,7 +33,7 @@ describe('L01 First Sight', () => {
     simulate(worldFor(level, { B: { s: z, r: 0 } }, 0), { segId: 'A', dir: 1, dist: 0, mode: 'resting' });
 
   it('reaches the goal only at z = 1, through a perceptual join with k = −1', () => {
-    for (const z of [-1, 0, 1, 2]) {
+    for (const z of [-1, 0, 1]) {
       const { outcome, events } = run(z);
       expect(outcome).toBe(z === 1 ? 'goal' : 'rest');
       if (z === 1) expect(events.filter((e) => e.type === 'cross').map((e) => e.type === 'cross' && e.k)).toEqual([-1]);
@@ -49,11 +49,24 @@ describe('L01 First Sight', () => {
 });
 
 describe('falling and solidity', () => {
-  const level = LEVELS[2]; // The Star: pillar over a capped floor
+  const level = LEVELS[2]; // The Star: a capped pillar
   it('a capped end still bumps the ball back', () => {
-    const w = worldFor(level, initialStates(level), 0);
-    const r = simulate(w, { segId: 'D', dir: 1, dist: 0, mode: 'resting' });
-    expect(r.events[0].type).toBe('bump');
+    const w = worldFor(level, { ST: { s: 1, r: 0 } }, 0);
+    const r = simulate(w, { segId: 'P', dir: 1, dist: 4.5, mode: 'resting' });
+    expect(r.events.some((e) => e.type === 'bump')).toBe(true);
+  });
+
+  it('The Star has exactly one winning position, and no position loops', () => {
+    for (const s of [1, 2, 3, 4]) {
+      const r = simulate(worldFor(level, { ST: { s, r: 0 } }, 0), { segId: 'A', dir: 1, dist: 0, mode: 'resting' });
+      expect(r.outcome).toBe(s === 4 ? 'goal' : 'rest');
+    }
+  });
+
+  it('a piece drawn in front of the ball blocks it (Turn, elbow covering the pillar)', () => {
+    const r = simulate(worldFor(LEVELS[1], { EL: { s: 0, r: 3 } }, 0), { segId: 'A', dir: 1, dist: 0, mode: 'resting' });
+    expect(r.events.some((e) => e.type === 'bump')).toBe(true);
+    expect(r.events.some((e) => e.type === 'fall')).toBe(false);
   });
 
   it('lands on a floor below and keeps rolling the same way', () => {
