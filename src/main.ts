@@ -90,6 +90,10 @@ async function main() {
     () => sound.setMuted(!settings.sound),
   );
 
+  // Desktop stand-in for the two-finger peek.
+  window.addEventListener('keydown', (e) => { if (e.code === 'Space' && !e.repeat) game.keyPeek(true); });
+  window.addEventListener('keyup', (e) => { if (e.code === 'Space') game.keyPeek(false); });
+
   // One render loop for everything. dt is clamped so a backgrounded app resumes gently.
   let last = performance.now();
   let timeScale = 1;

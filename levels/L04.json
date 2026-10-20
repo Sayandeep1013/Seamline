@@ -1,18 +1,148 @@
 {
-  "id": "L04", "name": "Two Sights", "palette": "mustard", "views": [0], "startView": 0,
+  "id": "L04",
+  "name": "Two Sights",
+  "palette": "mustard",
+  "views": [
+    0
+  ],
+  "startView": 0,
   "fixed": [
-    { "id": "A", "type": "straight", "from": [0, 0, 0], "to": [2, 0, 0], "n": "+y", "ends": ["start", "open"] },
-    { "id": "T1", "type": "turn", "from": [6, 2, 2], "t": "+x", "n": "+y", "side": "+z" },
-    { "id": "M", "type": "straight", "from": [7, 2, 3], "to": [7, 2, 5], "n": "+y" },
-    { "id": "Y", "type": "straight", "from": [9, 2, 9], "to": [9, 2, 10], "n": "+y", "ends": ["open", "cap"] }
+    {
+      "id": "A",
+      "type": "straight",
+      "from": [
+        0,
+        0,
+        0
+      ],
+      "to": [
+        2,
+        0,
+        0
+      ],
+      "n": "+y",
+      "ends": [
+        "start",
+        "open"
+      ]
+    },
+    {
+      "id": "T1",
+      "type": "turn",
+      "from": [
+        6,
+        2,
+        2
+      ],
+      "t": "+x",
+      "n": "+y",
+      "side": "+z"
+    },
+    {
+      "id": "M",
+      "type": "straight",
+      "from": [
+        7,
+        2,
+        3
+      ],
+      "to": [
+        7,
+        2,
+        5
+      ],
+      "n": "+y"
+    },
+    {
+      "id": "Y",
+      "type": "straight",
+      "from": [
+        9,
+        2,
+        9
+      ],
+      "to": [
+        9,
+        2,
+        10
+      ],
+      "n": "+y",
+      "ends": [
+        "open",
+        "cap"
+      ]
+    }
   ],
   "pieces": [
-    { "id": "S1", "shape": "beam",
-      "segments": [{ "id": "S1", "type": "straight", "from": [3, 1, 0], "to": [5, 1, 0], "n": "+y" }],
-      "slide": { "axis": "z", "stops": [-1, 0, 1, 2], "initial": -1 } },
-    { "id": "S2", "shape": "beam",
-      "segments": [{ "id": "S2", "type": "straight", "from": [8, 0, 6], "to": [8, 0, 8], "n": "+y", "ends": ["open", "goal"] }],
-      "slide": { "axis": "y", "stops": [0, 1, 2, 3, 4], "initial": 0 } }
+    {
+      "id": "S1",
+      "shape": "beam",
+      "segments": [
+        {
+          "id": "S1",
+          "type": "straight",
+          "from": [
+            3,
+            1,
+            0
+          ],
+          "to": [
+            5,
+            1,
+            0
+          ],
+          "n": "+y"
+        }
+      ],
+      "slide": {
+        "axis": "z",
+        "stops": [
+          -1,
+          0,
+          1,
+          2
+        ],
+        "initial": -1
+      }
+    },
+    {
+      "id": "S2",
+      "shape": "beam",
+      "segments": [
+        {
+          "id": "S2",
+          "type": "straight",
+          "from": [
+            8,
+            0,
+            6
+          ],
+          "to": [
+            8,
+            0,
+            8
+          ],
+          "n": "+y",
+          "ends": [
+            "open",
+            "goal"
+          ]
+        }
+      ],
+      "slide": {
+        "axis": "y",
+        "stops": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "initial": 0
+      }
+    }
   ],
-  "restPads": [], "par": 2
+  "restPads": [],
+  "par": 2,
+  "tip": "Hold two fingers on the screen to peek at the true depth"
 }

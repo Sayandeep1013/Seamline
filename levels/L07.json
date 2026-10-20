@@ -1,20 +1,192 @@
 {
-  "id": "L07", "name": "Monument", "palette": "mustard", "views": [0, 1], "startView": 0,
+  "id": "L07",
+  "name": "Monument",
+  "palette": "mustard",
+  "views": [
+    0,
+    1
+  ],
+  "startView": 0,
   "fixed": [
-    { "id": "A", "type": "straight", "from": [0, 8, 0], "to": [1, 8, 0], "n": "+y", "ends": ["start", "open"] },
-    { "id": "C1", "type": "convex", "from": [1, 8, 0], "t": "+x", "n": "+y" },
-    { "id": "P", "type": "straight", "from": [2, 7, 0], "to": [2, 2, 0], "n": "+x", "ends": ["open", "cap"] },
-    { "id": "L", "type": "straight", "from": [6, 6, 3], "to": [8, 6, 3], "n": "+y" },
-    { "id": "CV", "type": "convex", "from": [8, 6, 3], "t": "+x", "n": "+y" },
-    { "id": "Q", "type": "straight", "from": [9, 5, 3], "to": [9, 2, 3], "n": "+x" },
-    { "id": "G", "type": "straight", "from": [12, 3, 1], "to": [14, 3, 1], "n": "+y", "ends": ["open", "goal"] }
+    {
+      "id": "A",
+      "type": "straight",
+      "from": [
+        0,
+        8,
+        0
+      ],
+      "to": [
+        0,
+        8,
+        1
+      ],
+      "n": "+y",
+      "ends": [
+        "start",
+        "open"
+      ]
+    },
+    {
+      "id": "C1",
+      "type": "convex",
+      "from": [
+        0,
+        8,
+        1
+      ],
+      "t": "+z",
+      "n": "+y"
+    },
+    {
+      "id": "P",
+      "type": "straight",
+      "from": [
+        0,
+        7,
+        2
+      ],
+      "to": [
+        0,
+        2,
+        2
+      ],
+      "n": "+z",
+      "ends": [
+        "open",
+        "cap"
+      ]
+    },
+    {
+      "id": "T",
+      "type": "turn",
+      "from": [
+        3,
+        6,
+        6
+      ],
+      "t": "+z",
+      "n": "+y",
+      "side": "+x"
+    },
+    {
+      "id": "L",
+      "type": "straight",
+      "from": [
+        4,
+        6,
+        7
+      ],
+      "to": [
+        6,
+        6,
+        7
+      ],
+      "n": "+y"
+    },
+    {
+      "id": "CV",
+      "type": "convex",
+      "from": [
+        6,
+        6,
+        7
+      ],
+      "t": "+x",
+      "n": "+y"
+    },
+    {
+      "id": "Q",
+      "type": "straight",
+      "from": [
+        7,
+        5,
+        7
+      ],
+      "to": [
+        7,
+        2,
+        7
+      ],
+      "n": "+x"
+    },
+    {
+      "id": "G",
+      "type": "straight",
+      "from": [
+        10,
+        3,
+        5
+      ],
+      "to": [
+        12,
+        3,
+        5
+      ],
+      "n": "+y",
+      "ends": [
+        "open",
+        "goal"
+      ]
+    }
   ],
   "pieces": [
-    { "id": "ST", "shape": "star", "center": [4, 0, 2], "plane": "z",
-      "slide": { "axis": "y", "stops": [2, 3, 4, 5, 6, 7, 8], "initial": 8 } },
-    { "id": "EL", "shape": "elbow",
-      "segments": [{ "id": "EL", "type": "concave", "from": [9, 2, 3], "t": "-y", "n": "+x" }],
-      "rotate": { "axis": "z", "pivot": [10, 2, 3], "initial": 2 } }
+    {
+      "id": "ST",
+      "shape": "star",
+      "center": [
+        2,
+        0,
+        4
+      ],
+      "plane": "x",
+      "slide": {
+        "axis": "y",
+        "stops": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "initial": 8
+      }
+    },
+    {
+      "id": "EL",
+      "shape": "elbow",
+      "segments": [
+        {
+          "id": "EL",
+          "type": "concave",
+          "from": [
+            8,
+            3,
+            6
+          ],
+          "t": "-y",
+          "n": "+x"
+        }
+      ],
+      "rotate": {
+        "axis": "z",
+        "pivot": [
+          9,
+          3,
+          6
+        ],
+        "initial": 2
+      }
+    }
   ],
-  "restPads": [[7, 6, 3]], "par": 5
+  "restPads": [
+    [
+      5,
+      6,
+      7
+    ]
+  ],
+  "par": 5
 }

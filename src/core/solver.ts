@@ -2,6 +2,8 @@
 // A move is one drag to any stop, one 90° rotation, one view turn, or one release.
 import { type BallState, type BallWorld, simulate } from './ball';
 import { type LevelDef, type PieceStates, initialStates, padKeys, resolveSegments, startSegment } from './level';
+import { Solidity } from './solidity';
+import { pointAt } from './track';
 
 export type Move =
   | { type: 'slide'; piece: string; to: number }
@@ -20,7 +22,10 @@ const stateKey = (n: Pick<Node, 'states' | 'view' | 'ball'>) =>
   `${JSON.stringify(n.states)}|${n.view}|${n.ball.segId}:${n.ball.dir}:${n.ball.dist}`;
 
 export function worldFor(level: LevelDef, states: PieceStates, view: number): BallWorld {
-  return { segments: resolveSegments(level, states), view, moving: new Set(), pads: padKeys(level) };
+  return {
+    segments: resolveSegments(level, states), view, moving: new Set(), pads: padKeys(level),
+    startSeg: startSegment(level).id,
+  };
 }
 
 export interface SolveResult {
@@ -40,6 +45,7 @@ export function solve(level: LevelDef, opts: { from?: Omit<Node, 'path'>; maxNod
       ball: { segId: startSegment(level).id, dir: 1, dist: 0, mode: 'resting' },
       path: [],
     };
+  const solid = new Solidity(level);
   const seen = new Set([stateKey(start)]);
   const queue: Node[] = [start];
   const max = opts.maxNodes ?? 200000;
@@ -50,14 +56,22 @@ export function solve(level: LevelDef, opts: { from?: Omit<Node, 'path'>; maxNod
     explored++;
     const next: [Move, Omit<Node, 'path'>][] = [];
 
+    // Pieces are solid: a move is allowed only if the whole sweep stays clear of track, pieces and the ball.
+    const world = worldFor(level, node.states, node.view);
+    const ballSeg = world.segments.find((sg) => sg.id === node.ball.segId)!;
+    const ballAt = pointAt(ballSeg, node.ball.dir, node.ball.dist);
     for (const p of level.pieces) {
+      if (ballSeg.pieceId === p.id) continue; // the ball is resting on it
       const st = node.states[p.id];
       if (p.slide) for (const s of p.slide.stops) {
-        if (s !== st.s) next.push([{ type: 'slide', piece: p.id, to: s }, { ...node, states: { ...node.states, [p.id]: { ...st, s } } }]);
+        if (s === st.s || !solid.canMove(p.id, st, { ...st, s }, node.states, ballAt)) continue;
+        next.push([{ type: 'slide', piece: p.id, to: s }, { ...node, states: { ...node.states, [p.id]: { ...st, s } } }]);
       }
       if (p.rotate) {
         const r = (st.r + 1) % 4;
-        next.push([{ type: 'rotate', piece: p.id, to: r }, { ...node, states: { ...node.states, [p.id]: { ...st, r } } }]);
+        if (solid.canMove(p.id, st, { ...st, r: st.r + 1 }, node.states, ballAt)) {
+          next.push([{ type: 'rotate', piece: p.id, to: r }, { ...node, states: { ...node.states, [p.id]: { ...st, r } } }]);
+        }
       }
     }
     if (level.views.length > 1) {
@@ -67,7 +81,7 @@ export function solve(level: LevelDef, opts: { from?: Omit<Node, 'path'>; maxNod
         if (to !== node.view) next.push([{ type: 'view', to }, { ...node, view: to }]);
       }
     }
-    const run = simulate(worldFor(level, node.states, node.view), node.ball);
+    const run = simulate(world, node.ball);
     if (run.outcome === 'goal') {
       const solution = [...node.path, { type: 'release' } as Move];
       return { solvable: true, par: solution.length - 1, solution, explored };

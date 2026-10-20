@@ -1,7 +1,7 @@
 // Deterministic ball path follower (GAME_PLAN §4.4). Not a physics simulation.
 import { type Continuation, type JoinWorld, findContinuation } from './joins';
 import { type Dir, type Segment, exitOf, lengthOf, pointAt } from './track';
-import { AXES, type V3, add, key, scale } from './grid';
+import { AXES, type Axis, type V3, add, key, scale } from './grid';
 
 export type BallMode = 'resting' | 'rolling' | 'won';
 
@@ -19,10 +19,14 @@ export type BallEvent =
   | { type: 'cross'; k: number; from: V3; to: V3; segId: string }
   | { type: 'bump'; at: V3 }
   | { type: 'rest'; at: V3; pad: boolean }
-  | { type: 'goal'; at: V3 };
+  | { type: 'goal'; at: V3 }
+  /** Rolled off an open end: lands at `to` (rolling on, or settling), or is lost and returns to the start. */
+  | { type: 'fall'; from: V3; to: V3; result: 'roll' | 'settle' | 'lost' };
 
 export interface BallWorld extends JoinWorld {
   pads: ReadonlySet<string>;
+  /** Segment whose start socket the ball returns to after falling into the void. */
+  startSeg: string;
 }
 
 const EPS = 1e-9;
@@ -106,13 +110,54 @@ export function advance(ball: BallState, world: BallWorld, distance: number): Ba
       enter(ball, c, here, events);
       continue;
     }
-    // Dead end (cap, unjoined open end, or drop until landing exists): bump softly and roll back.
+    // An open end with nothing joined: the ball rolls off and falls (unless it was heading straight up).
+    if ((exit.flag === 'open' || exit.flag === 'drop') && exit.t !== '+y') {
+      fall(ball, world, exit.t, here, events);
+      break;
+    }
+    // Dead end (a capped end): bump softly and roll back.
     ball.dir = (-ball.dir) as Dir;
     ball.dist = 0;
     events.push({ type: 'bump', at: here });
     break;
   }
   return events;
+}
+
+/**
+ * Real gravity (GAME_PLAN §4.4): leaving an open end horizontally, the ball carries one cell forward
+ * while it drops; leaving downward, it drops straight. It lands on the highest floor node below that
+ * column. Landing on a floor running the same way, it keeps rolling; otherwise it settles there and
+ * waits. With nothing below, it's lost and returns to the start socket.
+ */
+function fall(ball: BallState, world: BallWorld, t: Axis, here: V3, events: BallEvent[]) {
+  const col: V3 = t === '-y' ? here : add(here, AXES[t]);
+  let best: { seg: Segment; d: number; q: V3 } | null = null;
+  for (const s of world.segments) {
+    if (s.kind !== 'straight' || s.n0 !== '+y' || s.t0[1] === 'y') continue;
+    if (s.pieceId && world.moving.has(s.pieceId)) continue;
+    const len = lengthOf(s);
+    for (let d = 0; d <= len; d++) {
+      const q = add(s.from, scale(AXES[s.t0], d));
+      if (q[0] !== col[0] || q[2] !== col[2] || q[1] >= here[1]) continue;
+      if (!best || q[1] > best.q[1]) best = { seg: s, d, q };
+    }
+  }
+  if (!best) {
+    events.push({ type: 'fall', from: here, to: add(col, [0, -8, 0]), result: 'lost' });
+    Object.assign(ball, { segId: world.startSeg, dir: 1, dist: 0, mode: 'resting', leaving: undefined });
+    return;
+  }
+  const { seg, d, q } = best;
+  const len = lengthOf(seg);
+  if (t !== '-y' && seg.t0[1] === t[1]) {
+    const dir: Dir = seg.t0 === t ? 1 : -1;
+    Object.assign(ball, { segId: seg.id, dir, dist: dir === 1 ? d : len - d, leaving: undefined });
+    events.push({ type: 'fall', from: here, to: q, result: 'roll' });
+    return;
+  }
+  Object.assign(ball, { segId: seg.id, dir: 1, dist: d, mode: 'resting', leaving: key(q) });
+  events.push({ type: 'fall', from: here, to: q, result: 'settle' });
 }
 
 /** What happens at the end the ball is heading for, without moving it. */

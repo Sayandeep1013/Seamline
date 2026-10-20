@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { type BallEvent, type BallState, type BallWorld, advance, upcoming } from '../core/ball';
 import { AXES, VIEWS, type V3, add, eq, manhattan, scale, sub } from '../core/grid';
 import { findContinuation } from '../core/joins';
+import { Solidity } from '../core/solidity';
 import {
   type LevelDef, type PieceDef, type PieceState, type PieceStates, initialStates, padKeys, pieceSegments, placementOf,
   resolveSegments, slideVector, startSegment,
@@ -15,7 +16,7 @@ import {
   BALL_R, bowlParts, hookParts, nubGeometry, padGeometry, pivotGeometry, seamGeometry, trackGeometry,
 } from '../render/geometry';
 import {
-  backgroundMesh, ballMaterial, blobShadowMaterial, dustMotes, seamGlowMaterial, toneMaterial,
+  backgroundMesh, ballMaterial, blobShadowMaterial, depthUniforms, dustMotes, seamGlowMaterial, toneMaterial, toneVariant,
 } from '../render/materials';
 import { PALETTES, type Palette } from '../render/palette';
 import type { Stage } from '../render/scene';
@@ -108,11 +109,24 @@ export class Game {
   private tmpAxis = new THREE.Vector3();
   private disposables: { dispose(): void }[] = [];
   private timers: number[] = [];
+  private solid: Solidity;
+  /** Tone materials per owner (piece id, or fixed segment id) so each can borrow a partner's depth. */
+  private ownerMats = new Map<string, THREE.ShaderMaterial[]>();
+  private shift = new Map<string, { x: number; target: number }>();
+  private tone!: THREE.ShaderMaterial;
+  /** Which side of a perceptual crossing is nearer the camera, for drawing the ball at that depth. */
+  private crossK = 0;
+  private falling: { from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; result: 'roll' | 'settle' | 'lost' } | null = null;
+  private pointers = new Map<number, THREE.Vector2>();
+  private peeking = false;
+  private peekTarget = 0;
+  private dragRange: [number, number] = [0, 0];
 
   constructor(private stage: Stage, level: LevelDef, private cb: GameCallbacks) {
     this.level = level;
     this.pal = PALETTES[level.palette] ?? PALETTES.mustard;
     this.view = level.startView;
+    this.solid = new Solidity(level);
     this.state = this.startState();
     this.build();
     this.bindInput();
@@ -133,7 +147,8 @@ export class Game {
     stage.setView(this.view);
     this.bg = backgroundMesh(p);
     stage.scene.add(this.bg, this.root);
-    const tone = this.keep(toneMaterial(p.top, p.left, p.right));
+    this.tone = this.keep(toneMaterial(p.top, p.left, p.right));
+    depthUniforms.uBg.value.set(p.bgTop);
     const v0 = VIEWS[this.level.startView];
     const fitPoints: THREE.Vector3[] = [];
     const addFit = (segs: Segment[]) => {
@@ -144,7 +159,7 @@ export class Game {
     };
 
     const fixedSegs = resolveSegments(this.level, initialStates(this.level)).filter((s) => s.pieceId === null);
-    for (const seg of fixedSegs) this.root.add(this.segmentMeshes(seg, tone));
+    for (const seg of fixedSegs) this.root.add(this.segmentMeshes(seg, this.ownerTone(seg.id)));
     addFit(fixedSegs);
 
     for (const def of this.level.pieces) {
@@ -156,6 +171,7 @@ export class Game {
       outer.add(pivot);
       pivot.add(inner);
       const star = def.shape === 'star' || def.shape === 'halfstar';
+      const tone = this.ownerTone(def.id);
       for (const seg of segs) inner.add(this.segmentMeshes(seg, tone, star ? STAR_DEPTH : undefined));
       if (def.slide && def.shape === 'beam') inner.add(new THREE.Mesh(this.keep(nubGeometry(segs[0], v0)), tone));
       if (def.rotate) inner.add(new THREE.Mesh(this.keep(pivotGeometry(def.rotate.pivot as V3, def.rotate.axis, v0)), tone));
@@ -192,11 +208,14 @@ export class Game {
       }
     }
 
-    const rimMat = this.keep(toneMaterial('#E2BE3F', p.bowlRim, '#A9871C'));
     for (const pad of this.level.restPads) {
       const seg = fixedSegs.find((s) => onStraight(s, pad as V3));
       const n = seg ? vec(AXES[seg.n0]) : new THREE.Vector3(0, 1, 0);
-      this.root.add(new THREE.Mesh(this.keep(padGeometry(pad as V3, n)), rimMat));
+      const rimMat = this.keep(toneMaterial('#E2BE3F', p.bowlRim, '#A9871C'));
+      if (seg) this.ownerMats.get(seg.id)?.push(rimMat);
+      const ring = new THREE.Mesh(this.keep(padGeometry(pad as V3, n)), rimMat);
+      ring.castShadow = ring.receiveShadow = true;
+      this.root.add(ring);
     }
 
     this.buildBall();
@@ -211,16 +230,25 @@ export class Game {
     this.placeBall(true);
   }
 
+  private ownerTone(owner: string) {
+    const m = this.keep(toneVariant(this.tone));
+    this.ownerMats.set(owner, [...(this.ownerMats.get(owner) ?? []), m]);
+    this.shift.set(owner, { x: 0, target: 0 });
+    return m;
+  }
+
   /** Body + end caps (+ hook / bowl) for one segment in its authored position. */
   private segmentMeshes(seg: Segment, tone: THREE.ShaderMaterial, depth?: number | ((u: number) => number)) {
     const g = new THREE.Group();
     const geo = trackGeometry(seg, 0, depth);
     this.disposables.push(geo.body, ...geo.caps);
     const caps: [THREE.Mesh, THREE.Mesh] = [new THREE.Mesh(geo.caps[0], tone), new THREE.Mesh(geo.caps[1], tone)];
-    g.add(new THREE.Mesh(geo.body, tone), ...caps);
+    const body = new THREE.Mesh(geo.body, tone);
+    for (const m of [body, ...caps]) { m.castShadow = true; m.receiveShadow = true; }
+    g.add(body, ...caps);
     this.caps.set(seg.id, caps);
     if (seg.ends[0] === 'start') this.buildHook(seg, tone, g);
-    if (seg.ends.includes('goal')) this.buildBowl(seg, g);
+    if (seg.ends.includes('goal')) this.buildBowl(seg, g, seg.pieceId ?? seg.id);
     return g;
   }
 
@@ -255,7 +283,7 @@ export class Game {
     g.add(post, arm);
   }
 
-  private buildBowl(seg: Segment, g: THREE.Group) {
+  private buildBowl(seg: Segment, g: THREE.Group, owner: string) {
     const p = this.pal;
     const f = frameAt(seg, 1, seg.ends[1] === 'goal' ? lengthOf(seg) : 0);
     const parts = bowlParts(f.p, vec(f.n));
@@ -263,7 +291,10 @@ export class Game {
     const bowlMat = this.keep(toneMaterial(p.bowlTop, p.bowlLeft, p.bowlRight));
     bowlMat.side = THREE.DoubleSide;
     const rimMat = this.keep(toneMaterial('#E2BE3F', p.bowlRim, '#A9871C'));
-    g.add(new THREE.Mesh(parts.bowl, bowlMat), new THREE.Mesh(parts.rim, rimMat));
+    this.ownerMats.get(owner)?.push(bowlMat, rimMat);
+    const bowl = new THREE.Mesh(parts.bowl, bowlMat), rim = new THREE.Mesh(parts.rim, rimMat);
+    bowl.receiveShadow = rim.castShadow = true;
+    g.add(bowl, rim);
     const ringGeo = this.keep(new THREE.RingGeometry(0.38, 0.44, 48));
     ringGeo.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), vec(f.n)));
     this.ring = new THREE.Mesh(ringGeo, this.keep(new THREE.MeshBasicMaterial({
@@ -278,6 +309,7 @@ export class Game {
     this.ballMesh = new THREE.Mesh(this.keep(new THREE.SphereGeometry(BALL_R, 40, 28)), this.keep(ballMaterial(this.pal, BALL_R)));
     this.ballShadow = new THREE.Mesh(
       this.keep(new THREE.PlaneGeometry(BALL_R * 2.6, BALL_R * 2.6)), this.keep(blobShadowMaterial(this.pal.shadow)));
+    this.ballMesh.castShadow = true;
     this.ball.add(this.ballMesh);
     this.root.add(this.ball, this.ballShadow);
   }
@@ -324,7 +356,10 @@ export class Game {
   private world(): BallWorld {
     const moving = new Set<string>();
     for (const [id, pv] of this.pieces) if (pv.moving) moving.add(id);
-    return { segments: resolveSegments(this.level, this.states()), view: this.view, moving, pads: padKeys(this.level) };
+    return {
+      segments: resolveSegments(this.level, this.states()), view: this.view, moving, pads: padKeys(this.level),
+      startSeg: startSegment(this.level).id,
+    };
   }
 
   private segment(world: BallWorld, id: string): Segment {
@@ -336,6 +371,8 @@ export class Game {
     const world = this.world();
     const active = new Set<string>();
     const pairs = new Set<string>();
+    const edges: [string, string, number][] = [];
+    const owner = (sg: Segment) => sg.pieceId ?? sg.id;
     for (const [, caps] of this.caps) caps.forEach((c) => (c.visible = true));
     for (const seg of world.segments) {
       if (seg.pieceId && world.moving.has(seg.pieceId)) continue;
@@ -343,7 +380,8 @@ export class Game {
         const exit = exitOf(seg, dir);
         if (exit.flag !== 'open') continue;
         const c = findContinuation(world, exit, seg);
-        if (!c || (this.turning && c.k !== 0)) continue;
+        if (!c || ((this.turning || this.peeking) && c.k !== 0)) continue;
+        edges.push([owner(seg), owner(c.seg), c.k]);
         this.caps.get(seg.id)![dir === 1 ? 1 : 0].visible = false;
         if (c.dist === 0) this.caps.get(c.seg.id)![c.dir === 1 ? 0 : 1].visible = false;
         if (c.k === 0) continue;
@@ -356,6 +394,7 @@ export class Game {
         if (!this.seams.has(k)) this.addSeam(k, seg, dir === 1 ? 1 : 0, initial);
       }
     }
+    this.updateDepthShifts(edges);
     for (const [k, s] of this.seams) {
       if (active.has(k)) continue;
       this.seams.delete(k);
@@ -363,6 +402,33 @@ export class Game {
         done: () => { this.root.remove(s.mesh); s.mesh.geometry.dispose(); s.mat.dispose(); },
       });
     }
+  }
+
+  /**
+   * Joined pieces share a depth for the tint, so a perceptual seam never shows a colour step.
+   * Walking the join graph from the start: a join with k puts the next piece k·|v| deeper, so it
+   * borrows that much depth back. While turning or peeking every piece shows its true depth.
+   */
+  private updateDepthShifts(edges: [string, string, number][]) {
+    for (const v of this.shift.values()) v.target = 0;
+    if (this.turning || this.peeking) return;
+    const adj = new Map<string, [string, number][]>();
+    for (const [a, b, k] of edges) {
+      adj.set(a, [...(adj.get(a) ?? []), [b, k]]);
+      adj.set(b, [...(adj.get(b) ?? []), [a, -k]]);
+    }
+    const start = startSegment(this.level).id;
+    const seen = new Map<string, number>([[start, 0]]);
+    const queue = [start];
+    while (queue.length) {
+      const a = queue.shift()!;
+      for (const [b, k] of adj.get(a) ?? []) {
+        if (seen.has(b)) continue;
+        seen.set(b, seen.get(a)! + k * Math.sqrt(3));
+        queue.push(b);
+      }
+    }
+    for (const [o, x] of seen) { const v = this.shift.get(o); if (v) v.target = x; }
   }
 
   private addSeam(k: string, seg: Segment, end: 0 | 1, initial: boolean) {
@@ -393,6 +459,7 @@ export class Game {
     el.addEventListener('pointerup', (e) => this.onUp(e), o);
     el.addEventListener('pointercancel', (e) => this.onUp(e), o);
     el.addEventListener('lostpointercapture', (e) => this.onUp(e), o);
+    el.addEventListener('contextmenu', (e) => e.preventDefault(), o);
   }
 
   private pickPiece(x: number, y: number): PieceView | null {
@@ -409,6 +476,13 @@ export class Game {
   }
 
   private onDown(e: PointerEvent) {
+    this.pointers.set(e.pointerId, new THREE.Vector2(e.clientX, e.clientY));
+    // A second finger turns any gesture into a peek at the true depth.
+    if (this.pointers.size >= 2 || e.button === 2) {
+      this.cancelPointer();
+      this.setPeek(true);
+      return;
+    }
     if (this.pointer || this.won) return;
     sound.unlock();
     sound.startPad();
@@ -421,7 +495,28 @@ export class Game {
     this.stage.renderer.domElement.setPointerCapture(e.pointerId);
   }
 
+  /** Abandon the current one-finger gesture, putting a dragged piece back on its stop. */
+  private cancelPointer() {
+    const d = this.pointer;
+    this.pointer = null;
+    if (d?.dragging && d.piece) {
+      d.piece.slide.target = d.piece.committed.s;
+      hapticSelectionEnd();
+    }
+  }
+
+  private setPeek(on: boolean) {
+    if (on === this.peeking && this.peekTarget === (on ? 1 : 0)) return;
+    this.peekTarget = on ? 1 : 0;
+    if (on && !this.peeking) {
+      this.peeking = true;
+      sound.turn();
+      this.refreshJoins();
+    }
+  }
+
   private onMove(e: PointerEvent) {
+    if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, new THREE.Vector2(e.clientX, e.clientY));
     const d = this.pointer;
     if (!d || e.pointerId !== d.id) return;
     const pv = d.piece;
@@ -429,22 +524,28 @@ export class Game {
     const delta = new THREE.Vector2(e.clientX, e.clientY).sub(d.start);
     if (!d.dragging) {
       if (delta.length() < DRAG_SLOP) return;
-      if (this.ballOn(pv.def.id)) { pv.shake = 1; sound.bump(); d.piece = null; return; }
+      if (this.ballOn(pv.def.id) || this.falling) { pv.shake = 1; sound.bump(); d.piece = null; return; }
       d.dragging = true;
       pv.moving = true;
+      // Solid pieces: the drag can only reach as far as the first thing in the way.
+      this.dragRange = this.solid.slideRange(pv.def.id, pv.committed, this.states(), this.ballObstacle());
       this.clearGhostIfFor(pv.def.id);
       hapticSelectionStart();
       this.refreshJoins();
     }
     const units = delta.dot(d.screenAxis) / Math.max(d.screenAxis.lengthSq(), 1e-6);
     const raw = d.startValue + units;
-    const lo = pv.stops[0], hi = pv.stops[pv.stops.length - 1];
+    const [lo, hi] = this.dragRange;
     let value = raw;
-    if (raw > hi) value = hi + RUBBER * (1 - Math.exp(-(raw - hi) / RUBBER));
-    if (raw < lo) value = lo - RUBBER * (1 - Math.exp(-(lo - raw) / RUBBER));
+    if (raw > hi) value = hi + RUBBER * 0.5 * (1 - Math.exp(-(raw - hi) / RUBBER));
+    if (raw < lo) value = lo - RUBBER * 0.5 * (1 - Math.exp(-(lo - raw) / RUBBER));
+    const wasFree = pv.slide.x > lo - 1e-3 && pv.slide.x < hi + 1e-3;
     pv.slide.x = value;
     pv.slide.target = value;
     pv.slide.v = 0;
+    // Pressing into an obstacle (not the end of the rail) gives a soft thud once.
+    const blocked = (raw > hi + 0.05 && hi < pv.stops[pv.stops.length - 1]) || (raw < lo - 0.05 && lo > pv.stops[0]);
+    if (blocked && wasFree) { sound.bump(); haptic('tick'); }
     const nearest = this.nearestStop(pv, value);
     if (nearest !== pv.lastDetent && Math.abs(value - nearest) < 0.2) {
       pv.lastDetent = nearest;
@@ -454,6 +555,11 @@ export class Game {
   }
 
   private onUp(e: PointerEvent) {
+    this.pointers.delete(e.pointerId);
+    if (this.peeking) {
+      if (this.pointers.size === 0) this.setPeek(false);
+      return;
+    }
     const d = this.pointer;
     if (!d || e.pointerId !== d.id) return;
     this.pointer = null;
@@ -461,7 +567,10 @@ export class Game {
     if (d.dragging && d.piece) {
       const pv = d.piece;
       hapticSelectionEnd();
-      const target = this.nearestStop(pv, Math.min(Math.max(pv.slide.x, pv.stops[0]), pv.stops[pv.stops.length - 1]));
+      const [lo, hi] = this.dragRange;
+      const reachable = pv.stops.filter((st) => st >= lo - 1e-6 && st <= hi + 1e-6);
+      const v = Math.min(Math.max(pv.slide.x, lo), hi);
+      const target = reachable.reduce((best, st) => (Math.abs(st - v) < Math.abs(best - v) ? st : best), pv.committed.s);
       pv.slide.target = target;
       if (target !== pv.committed.s) {
         this.record({ type: 'slide', id: pv.def.id, from: pv.committed.s, to: target });
@@ -470,7 +579,7 @@ export class Game {
       return;
     }
     if (delta.length() < DRAG_SLOP) {
-      if (this.state.mode === 'resting' && this.ballScreen().distanceTo(d.start) < BALL_TAP_PX) { this.release(); return; }
+      if (this.state.mode === 'resting' && !this.falling && this.ballScreen().distanceTo(d.start) < BALL_TAP_PX) { this.release(); return; }
       if (d.piece?.rotAxis) { this.rotate(d.piece); return; }
       if (d.piece) { d.piece.shake = 0.6; return; }
       if (this.state.mode === 'resting') this.nudgeBall();
@@ -479,6 +588,17 @@ export class Game {
     if (!d.piece && Math.abs(delta.x) > SWIPE_MIN && Math.abs(delta.x) > Math.abs(delta.y) * 1.2) {
       this.turn(delta.x < 0 ? 1 : -1);
     }
+  }
+
+  /** Where the ball is, as an obstacle pieces can't pass through. */
+  private ballObstacle(): V3 {
+    const p = this.lastBallPos;
+    return [p.x, p.y, p.z];
+  }
+
+  /** Desktop stand-in for the two-finger peek: hold Space. */
+  keyPeek(on: boolean) {
+    this.setPeek(on);
   }
 
   private nearestStop(pv: PieceView, value: number) {
@@ -503,7 +623,7 @@ export class Game {
   // ---------------------------------------------------------------- actions
 
   release() {
-    if (this.state.mode !== 'resting' || this.won) return;
+    if (this.state.mode !== 'resting' || this.won || this.falling) return;
     const fromStart = this.atStart();
     if (this.released) { this.moves++; this.cb.onMoves(this.moves); }
     this.released = true;
@@ -529,7 +649,8 @@ export class Game {
   }
 
   private rotate(pv: PieceView, dirn: 1 | -1 = 1, recordIt = true) {
-    if (this.ballOn(pv.def.id)) { pv.shake = 1; sound.bump(); return; }
+    const blocked = !this.solid.canMove(pv.def.id, pv.committed, { ...pv.committed, r: pv.committed.r + dirn }, this.states(), this.ballObstacle());
+    if (this.ballOn(pv.def.id) || blocked || this.falling) { pv.shake = 1; sound.bump(); haptic('tick'); return false; }
     const from = pv.committed.r;
     const to = (from + dirn + 4) % 4;
     pv.committed.r = to;
@@ -540,12 +661,13 @@ export class Game {
     haptic('light');
     if (recordIt) this.record({ type: 'rotate', id: pv.def.id, from, to });
     this.refreshJoins();
+    return true;
   }
 
   /** Turn the world to the next/previous allowed view (GAME_PLAN §4.5). */
   turn(step: 1 | -1, recordIt = true) {
     const views = this.level.views;
-    if (views.length < 2 || this.turning || this.overlayAfter > 0 || this.won) return;
+    if (views.length < 2 || this.turning || this.peeking || this.overlayAfter > 0 || this.falling || this.won) return;
     const to = views[(views.indexOf(this.view) + step + views.length) % views.length];
     this.toView(to, recordIt);
   }
@@ -583,12 +705,16 @@ export class Game {
       const pv = this.pieces.get(a.id)!;
       if (this.ballOn(a.id)) { this.undoStack.push(a); pv.shake = 1; return; }
       if (a.type === 'slide') {
+        if (!this.solid.canMove(a.id, pv.committed, { ...pv.committed, s: a.from }, this.states(), this.ballObstacle())) {
+          this.undoStack.push(a); pv.shake = 1; sound.bump(); return;
+        }
         pv.committed.s = a.from;
         pv.slide.target = a.from;
         pv.moving = true;
         this.refreshJoins();
-      } else {
-        this.rotate(pv, -1, false);
+      } else if (!this.rotate(pv, -1, false)) {
+        this.undoStack.push(a);
+        return;
       }
     }
     this.moves = Math.max(0, this.moves - 1);
@@ -596,6 +722,7 @@ export class Game {
   }
 
   restart() {
+    this.falling = null;
     this.undoStack = [];
     this.moves = 0;
     this.released = false;
@@ -658,9 +785,22 @@ export class Game {
     this.timeScale = damp(this.timeScale, this.targetTimeScale, 6, dt);
     const sdt = dt * this.timeScale;
     updateTweens(sdt);
+    this.updatePeek(dt);
     this.updatePieces(sdt);
-    this.updateBall(sdt);
+    this.updateBall(this.peeking ? 0 : sdt);
     this.updateFx(dt);
+  }
+
+  private updatePeek(dt: number) {
+    if (!this.peeking) return;
+    const stage = this.stage;
+    stage.peek = damp(stage.peek, this.peekTarget, reducedMotion() ? 14 : 7, dt);
+    if (this.peekTarget === 0 && stage.peek < 0.01) {
+      stage.peek = 0;
+      this.peeking = false;
+      this.refreshJoins();
+    }
+    if (!this.turning) stage.setView(stage.angle);
   }
 
   private applyPieceTransform(pv: PieceView) {
@@ -693,6 +833,10 @@ export class Game {
 
   private updateBall(dt: number) {
     const world = this.world();
+    if (this.falling) {
+      this.updateFall(dt);
+      return;
+    }
     if (this.state.mode === 'rolling') {
       if (this.pauseFor > 0) {
         this.pauseFor -= dt;
@@ -706,26 +850,91 @@ export class Game {
         for (const ev of advance(this.state, world, this.speed * dt)) this.onBallEvent(ev);
       }
     }
-    this.placeBall();
+    if (this.falling) return;
     const next = this.state.mode === 'rolling' ? upcoming(this.state, world) : null;
     const approaching = Boolean(next && next.k !== null && next.k !== 0 && next.remaining < 0.8);
+    // Draw the ball at the depth of whichever side of a perceptual crossing is nearer the camera.
+    // Sliding it along the view line doesn't move it on screen; it only changes what can hide it.
+    const depthCopy = approaching ? Math.max(0, -next!.k!) : this.overlayAfter > 0 ? Math.max(0, this.crossK) : 0;
+    this.placeBall(false, depthCopy);
     // Slow-mo for the very first perceptual crossing (GAME_PLAN L1 feedback).
     this.targetTimeScale = !this.firstCrossDone && !reducedMotion() && (approaching || this.overlayAfter > 0.3) ? 0.4 : 1;
-    // Draw the ball on top while it crosses a perceptual join, so it never clips into geometry.
-    this.setOverlay(approaching || this.overlayAfter > 0);
+    sound.roll(this.state.mode === 'rolling' ? this.speed / CRUISE : 0);
+  }
+
+  /** Gravity: horizontal speed carries the ball forward while it drops (or it drops into the void). */
+  private updateFall(dt: number) {
+    const f = this.falling!;
+    f.t = Math.min(1, f.t + dt / f.dur);
+    const u = f.t;
+    const pos = f.from.clone().lerp(f.to, u);
+    pos.y = f.from.y + (f.to.y - f.from.y) * u * u;
+    const step = pos.clone().sub(this.ball.position);
+    this.tmpAxis.set(step.z, 0, -step.x);
+    if (this.tmpAxis.lengthSq() > 1e-8) {
+      this.tmpAxis.normalize();
+      this.ballMesh.quaternion.premultiply(this.tmpQ.setFromAxisAngle(this.tmpAxis, (step.length() / BALL_R) * 0.6));
+    }
+    this.ball.position.copy(pos);
+    this.lastBallPos.copy(pos);
+    // The contact shadow waits on the landing surface, growing as the ball comes down.
+    const sh = this.ballShadow;
+    sh.visible = f.result !== 'lost';
+    sh.position.set(pos.x, f.to.y - BALL_R + 0.004, pos.z);
+    sh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0));
+    sh.scale.setScalar(0.4 + 0.6 * u);
+    if (f.result === 'lost') this.ball.scale.setScalar(Math.max(0.001, 1 - Math.max(0, u - 0.45) / 0.55));
+    if (f.t < 1) return;
+    this.falling = null;
+    sh.scale.setScalar(1);
+    sh.visible = true;
+    if (f.result === 'lost') {
+      // Back to the start socket, gently.
+      this.lowerHook();
+      this.placeBall(true);
+      tween(0.001, 1, 0.4, (x) => this.ball.scale.setScalar(x), { ease: ease.outCubic, delay: 0.2 });
+      sound.rest();
+      return;
+    }
+    this.placeBall(true);
+    this.squash(new THREE.Vector3(0, 1, 0), 0.2);
+    sound.land();
+    haptic('light');
+  }
+
+  /** Brief volume-preserving squash along an axis (landing, bumps). */
+  private squash(axis: THREE.Vector3, amount: number) {
+    const g = this.ball;
+    const a = new THREE.Vector3(Math.abs(axis.x), Math.abs(axis.y), Math.abs(axis.z));
+    tween(1, 0, reducedMotion() ? 0.12 : 0.32, (k) => {
+      const sq = 1 - amount * k, w = 1 / Math.sqrt(sq);
+      g.scale.set(a.x > 0.5 ? sq : w, a.y > 0.5 ? sq : w, a.z > 0.5 ? sq : w);
+    }, { ease: ease.outCubic, tag: 'squash' });
   }
 
   private onBallEvent(ev: BallEvent) {
     switch (ev.type) {
       case 'cross':
-        if (ev.k !== 0) { this.overlayAfter = 0.9; this.crossedOnce = true; }
+        if (ev.k !== 0) { this.overlayAfter = 0.9; this.crossK = ev.k; this.crossedOnce = true; }
         break;
-      case 'bump':
+      case 'bump': {
         this.speed = 0;
         this.pauseFor = 0.18;
+        const f = frameAt(this.segment(this.world(), this.state.segId), this.state.dir, 0);
+        this.squash(vec(f.t), 0.14);
         sound.bump();
         haptic('tick');
         break;
+      }
+      case 'fall': {
+        const from = vec(ev.from), to = vec(ev.to);
+        const h = Math.max(0.3, from.y - to.y);
+        this.falling = { from, to, t: 0, dur: Math.min(1.1, Math.sqrt((2 * h) / 16) + 0.12), result: ev.result };
+        this.speed = ev.result === 'roll' ? this.speed * 0.6 : 0;
+        this.overlayAfter = 0;
+        sound.fall();
+        break;
+      }
       case 'rest':
         this.speed = 0;
         if (ev.pad) { sound.rest(); haptic('tick'); } else this.lowerHook();
@@ -750,7 +959,7 @@ export class Game {
     this.timers.push(window.setTimeout(() => this.cb.onWin(this.moves, this.level.par), 1100));
   }
 
-  private placeBall(snap = false) {
+  private placeBall(snap = false, depthCopy = 0) {
     const f = frameAt(this.segment(this.world(), this.state.segId), this.state.dir, this.state.dist);
     const pos = vec(f.p), n = vec(f.n);
     const step = pos.clone().sub(this.lastBallPos);
@@ -766,22 +975,17 @@ export class Game {
       }
     }
     this.lastBallPos.copy(pos);
-    this.ball.position.copy(pos);
-    this.ballShadow.position.copy(pos).addScaledVector(n, -BALL_R + 0.004);
+    const shown = pos.clone().add(vec(VIEWS[this.view]).multiplyScalar(depthCopy));
+    this.ball.position.copy(shown);
+    this.ballShadow.position.copy(shown).addScaledVector(n, -BALL_R + 0.004);
     this.ballShadow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
   }
 
-  private setOverlay(on: boolean) {
-    const m = this.ballMesh.material as THREE.ShaderMaterial;
-    const s = this.ballShadow.material as THREE.MeshBasicMaterial;
-    if (m.depthTest === !on) return;
-    m.depthTest = !on;
-    s.depthTest = !on;
-    this.ballMesh.renderOrder = on ? 20 : 0;
-    this.ballShadow.renderOrder = on ? 19 : 0;
-  }
-
   private updateFx(dt: number) {
+    for (const [o, v] of this.shift) {
+      v.x = damp(v.x, v.target, 3.5, dt);
+      for (const m of this.ownerMats.get(o) ?? []) m.uniforms.uDepthShift.value = v.x;
+    }
     (this.bg.material as THREE.ShaderMaterial).uniforms.uTime.value = this.time;
     const motes = this.motes.material as THREE.ShaderMaterial;
     motes.uniforms.uTime.value = this.time;
@@ -803,6 +1007,8 @@ export class Game {
 
   dispose() {
     cancelAllTweens();
+    this.stage.peek = 0;
+    sound.roll(0);
     for (const t of this.timers) clearTimeout(t);
     this.abort.abort();
     this.stage.scene.remove(this.root, this.bg, this.motes);

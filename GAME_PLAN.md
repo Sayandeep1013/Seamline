@@ -1,7 +1,7 @@
 # SEAMLINE — Game Plan & Handoff Document
 
 > **Working title:** *Seamline* (a ball flows "seamlessly" through joins that only exist from where you're looking).
-> **Status:** v0.1.0. Chapter 1 has 7 solver-verified levels, playable in the browser and as a portrait Android app built by GitHub Actions. This document is the single source of truth.
+> **Status:** v0.2.0 (real falls, solid pieces, depth cues, peek). Chapter 1 has 7 solver-verified levels, playable in the browser and as a portrait Android app built by GitHub Actions. This document is the single source of truth.
 > **Last updated:** 2026-10-20
 > **Purpose of this file:** Paste this whole document into any new AI chat (or hand it to a developer) and they'll have everything needed to continue: concept, rules, math, levels, tech stack, assets, milestones, and open decisions.
 
@@ -118,7 +118,9 @@ For other views, rotate the world point around `y` by −90°·n first.
   2. A physical continuation.
   3. A perceptual continuation.
 - **Crossing a perceptual join** teleports the ball in 3D by `k·v`, so on screen it moves continuously. It's rendered on top while crossing (§9.5).
-- **Dead end** (no join, capped end) → the ball bumps softly and **rolls back** the way it came. If it gets back to the start it waits there. No failure screen.
+- **Dead end** (a capped end) → the ball bumps softly and **rolls back** the way it came. If it gets back to the start it waits there. No failure screen.
+- **Open end with nothing joined** (v0.2) → the ball **falls with gravity**. Leaving horizontally it carries one cell forward; leaving downward it drops straight. It lands on the highest floor node in that column. On a floor running the same way it keeps rolling; on any other floor it settles and waits for a tap. With nothing below, it fades into the void and reappears at the start.
+- **Solid pieces** (v0.2) → pieces never pass through track, other pieces or the ball. Drags stop softly at an obstacle, and a rotation that would hit something shakes instead. The solver only allows moves whose whole sweep is clear (`src/core/solidity.ts`).
 - **Drop end** (open end, marked with a lip; from level 8) → the ball falls straight down **on screen** and lands on the first track surface beneath it on screen (**perspective landing**, §4.6). If there's nothing below, it fades out and respawns at the last rest point.
 - **Rest pads** (cradles; from level 6): the ball stops and waits. Tap the ball to continue.
 - **Goal:** a **chime bowl**. When the ball reaches it, the level is complete.
@@ -530,3 +532,8 @@ adb install -r seamline-debug.apk       # after downloading the CI artifact
 | 2026-10-20 | The Star is built from four concave quarter-rings that taper to points, with a ball-width slot at each tip. | With tips on the ball path, the two faces at a tip have opposite normals, so a single solid star can't carry both. |
 | 2026-10-20 | Solver moves: drag to any stop, rotate +90°, turn view ±1, release. Par = moves − 1 (the first release is free). Endless loops count as dead ends. | Matches the HUD move count. |
 | 2026-10-20 | v0.1.0: Capacitor 8 Android shell locked to portrait, a GitHub Actions APK on every push, a GitHub Release on `v*` tags. The repo is public. | The owner wants a phone app with nothing native built locally. |
+| 2026-10-20 | v0.2: unjoined open ends make the ball **fall** (real gravity, void → back to start); capped ends still bump. | The owner reported "glitches and passes through"; bouncing off thin air read as a bug. |
+| 2026-10-20 | v0.2: **solid pieces** (collision for slides, rotations, undo, and in the solver). The elbows in L2 and L7 now float in front of their pillars, joined perceptually. | The owner wants physically believable behaviour for wrong placements; the old elbow swept through the pillar. |
+| 2026-10-20 | v0.2: the ball is drawn at the depth of the **nearer side of a perceptual crossing** (sliding along the view line is invisible on screen), replacing "draw on top of everything". | Removes the x-ray look while still never clipping. |
+| 2026-10-20 | v0.2 depth cues: soft warm shadows, darkened side faces, top-edge bevel, **depth tint with join-aware depth borrowing** (joined pieces share a tone, so seams stay invisible), and a two-finger **peek** (Space on desktop) that tilts to show the true depth with joins off. | The owner asked for more visual and 3D depth, including depth tint. |
+| 2026-10-20 | L7 redesigned as a vertical zigzag (the star plane is x, with a flat turn). Each view has its own framing, blended during turns. | L7 was too wide for portrait. |

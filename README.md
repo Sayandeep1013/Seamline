@@ -22,22 +22,26 @@ elbows, line up the Star and turn the world until an impossible path exists, the
 |---|---|---|
 | ![Title screen](docs/screenshots/01-title.jpg) | ![Level select](docs/screenshots/02-levels.jpg) | ![The ball waits on a cradle while you move the beam](docs/screenshots/04-hold.jpg) |
 
-| Monument | Another Angle | Solved |
+| Monument | Peek | Solved |
 |---|---|---|
-| ![The finale](docs/screenshots/05-monument.jpg) | ![Turning the world](docs/screenshots/06-turning.jpg) | ![Result card](docs/screenshots/07-solved.jpg) |
+| ![The finale](docs/screenshots/05-monument.jpg) | ![Two fingers tilt the camera to show the true depth](docs/screenshots/06-peek.jpg) | ![Result card](docs/screenshots/07-solved.jpg) |
 
 ## How it plays
 
 - **The camera is a true isometric projection.** Two track ends join when they line up on screen,
   run the same way and have the ball on the same side. It's exact grid maths, not pixel hunting:
   if it looks connected, it is.
-- **You set up the path and the ball does the rest.** Tap the ball to release it. It rolls on its own,
-  bumps softly at dead ends and rolls home. There are no timers, no lives and no fail screens.
+- **You set up the path and the ball does the rest.** Tap the ball to release it. It rolls on its own
+  and obeys real physics wherever there's no join. It falls off open edges and lands on whatever is really
+  below. If nothing is, it drifts back to the start. It bumps softly at capped ends. There are no timers,
+  no lives and no fail screens.
+- **Everything is solid.** Pieces stop against track, other pieces and the ball instead of passing through.
 - **Your moves:**
   - **slide** beams and the Star along their dotted rails;
   - **tap** an elbow to turn it a quarter;
   - **swipe** across empty space to turn the whole world (in levels that allow it);
-  - **tap** the ball when it waits on a cradle.
+  - **tap** the ball when it waits on a cradle;
+  - **hold two fingers** to peek: the camera tilts to show the true 3D depth, then settles back (Space on desktop).
 - **Seven levels in Chapter 1, "Mustard"**, each teaching one idea:
 
   | | Level | Idea |
@@ -50,6 +54,8 @@ elbows, line up the Star and turn the world until an impossible path exists, the
   | 6 | Another Angle | the camera is a piece |
   | 7 | Monument | everything at once |
 
+- **Depth you can read.** Soft warm shadows, solid shading, and a gentle depth haze. Joined pieces
+  share a tone, so the seams stay invisible.
 - **Soothing by design.** Synthesised pentatonic chimes, a generative ambient pad, soft haptics,
   drifting dust and slow-motion for your first impossible crossing. Every snap glides into place without bouncing.
 - **Stuck?** After a short while a hint button appears. It shows the next move of a shortest solution,
@@ -87,7 +93,8 @@ TypeScript, Three.js and Capacitor. There's no game engine and no physics engine
 deterministically, which is what lets a solver prove every level fair.
 
 ```
-src/core/      the rules, pure TypeScript: integer grid, track segments, the join rule, ball follower, BFS solver
+src/core/      the rules, pure TypeScript: integer grid, track segments, the join rule, ball follower + falls,
+               solidity (collision sweeps), BFS solver
 src/render/    orthographic iso camera, three-tone face shader, swept track geometry, seam glow, dust motes
 src/anim/      frame-rate-independent damping, tweens and critically damped springs
 src/audio/     Web Audio synthesis: FM chimes, thocks, generative common-tone pad, generated reverb
@@ -105,6 +112,7 @@ is in [`research/FEEL_AND_ATMOSPHERE.md`](research/FEEL_AND_ATMOSPHERE.md).
 
 | | |
 |---|---|
+| v0.2.0 | Real falls, solid pieces, depth-correct crossings, shadows + depth tint, peek gesture; L7 re-laid for portrait; steady 60 fps on a mid-range phone |
 | v0.1.0 | Chapter 1 (7 levels), slide / rotate / turn-the-world / rest pads, the Star, hints, settings, saved progress, Android APK |
 | Next | Penrose loop and perspective-landing levels, Chapter 2 palette, a signed Play Store build |
 

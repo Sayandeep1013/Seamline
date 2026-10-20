@@ -139,6 +139,55 @@ class Sound {
   turn() { this.chime(1, 0.3, 0); this.chime(4, 0.25, 0, 0.3); }
   rotate(step: number) { this.chime(step + 1, 0.4, 1); this.thock(0.35, 260); }
   rest() { this.chime(2, 0.45, 1); }
+  land() { this.thock(0.7, 170); this.chime(0, 0.25, 0); }
+
+  /** A soft falling whoosh: filtered noise sweeping down. */
+  fall() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const len = (ctx.sampleRate * 0.6) | 0;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.sin((Math.PI * i) / len);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 2;
+    bp.frequency.setValueAtTime(900, t);
+    bp.frequency.exponentialRampToValueAtTime(220, t + 0.6);
+    const g = ctx.createGain();
+    g.gain.value = 0.18;
+    src.connect(bp).connect(g).connect(this.master);
+    src.start(t);
+  }
+
+  private rollGain: GainNode | null = null;
+
+  /** Quiet rolling hum whose level follows the ball's speed (0..1). */
+  roll(level: number) {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running') return;
+    if (!this.rollGain) {
+      const len = ctx.sampleRate * 2;
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      let lp = 0;
+      for (let i = 0; i < len; i++) { lp += 0.04 * (Math.random() * 2 - 1 - lp); d[i] = lp * 6; }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 320;
+      this.rollGain = ctx.createGain();
+      this.rollGain.gain.value = 0;
+      src.connect(f).connect(this.rollGain).connect(this.master);
+      src.start();
+    }
+    this.rollGain.gain.setTargetAtTime(Math.min(1, Math.max(0, level)) * 0.05, ctx.currentTime, 0.08);
+  }
   bump() { this.thock(0.5, 160); }
   release() { this.chime(2, 0.4, 1); this.thock(0.3, 300); }
   win() { [0, 2, 4, 5].forEach((d, i) => this.chime(d, 0.8 - i * 0.08, 1, i * 0.22)); }

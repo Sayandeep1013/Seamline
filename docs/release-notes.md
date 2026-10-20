@@ -1,10 +1,10 @@
-Chapter 1, "Mustard": seven calm perspective puzzles.
+Physics and depth update.
 
-**Install:** download the `.apk` below on your Android phone, open it, and allow installs from your browser or file manager when asked.
+**Install:** download the `.apk` below on your Android phone and open it. This build is signed with a new CI debug key, so if Android refuses to update over v0.1.0, uninstall the old version first. That resets your progress.
 
-- 7 levels: First Sight, Turn, The Star, Two Sights, Hold, Another Angle, Monument
-- Slide beams, rotate elbows, line up the Star, turn the world, park the ball on cradles
-- Hints from the built-in solver, settings (sound, music, vibration, reduce motion), saved progress
-- Portrait only, fully offline, no permissions
-
-This build is signed with a CI debug key. If a later version refuses to install over this one, uninstall first. Your progress resets when you do.
+- **Real falls:** an unjoined edge drops the ball with gravity onto whatever is really below it, or into the void and back to the start
+- **Solid pieces:** drags and rotations stop against track, other pieces and the ball; nothing passes through
+- **Depth:** soft shadows, solid shading, depth haze (joined pieces share a tone), and a two-finger **peek** that shows the true 3D
+- Crossings draw the ball at the right depth (no more x-ray)
+- Monument re-laid for portrait; every level re-verified by the solver with the new rules
+- Rolling, falling and landing sounds; squash on bumps and landings

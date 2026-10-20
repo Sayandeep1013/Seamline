@@ -34,21 +34,32 @@ function samples(seg: Segment, extra = 0): Sample[] {
   return out;
 }
 
+type F2 = [number, number];
+
 class Builder {
-  pos: number[] = []; nor: number[] = []; uv: number[] = [];
+  pos: number[] = []; nor: number[] = []; uv: number[] = []; face: number[] = [];
+  /** `f` gives each corner's (across, down) shading coordinates: see aFace in the tone shader. */
   quad(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3,
-    na: THREE.Vector3, nb: THREE.Vector3, nc: THREE.Vector3, nd: THREE.Vector3) {
+    na: THREE.Vector3, nb: THREE.Vector3, nc: THREE.Vector3, nd: THREE.Vector3,
+    f: [F2, F2, F2, F2] = [[0, 0], [0, 0], [0, 0], [0, 0]]) {
     // Keep the winding consistent with the outward normal.
-    const face = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
-    const flip = face.dot(new THREE.Vector3().add(na).add(nc)) < 0;
-    const tri = flip ? [[a, na], [c, nc], [b, nb], [a, na], [d, nd], [c, nc]] : [[a, na], [b, nb], [c, nc], [a, na], [c, nc], [d, nd]];
-    for (const [p, n] of tri) { this.pos.push(p.x, p.y, p.z); this.nor.push(n.x, n.y, n.z); this.uv.push(0, 0); }
+    const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+    const flip = n.dot(new THREE.Vector3().add(na).add(nc)) < 0;
+    const order = flip ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3];
+    const P = [a, b, c, d], N = [na, nb, nc, nd];
+    for (const i of order) {
+      this.pos.push(P[i].x, P[i].y, P[i].z);
+      this.nor.push(N[i].x, N[i].y, N[i].z);
+      this.uv.push(0, 0);
+      this.face.push(f[i][0], f[i][1]);
+    }
   }
   geometry() {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
+    g.setAttribute('aFace', new THREE.Float32BufferAttribute(this.face, 2));
     return g;
   }
 }
@@ -73,15 +84,15 @@ export function trackGeometry(seg: Segment, extra = 0, depth: number | ((u: numb
   for (let i = 0; i < S.length - 1; i++) {
     const s = S[i], e = S[i + 1];
     const nS = s.n, nE = e.n, mS = s.n.clone().negate(), mE = e.n.clone().negate();
-    b.quad(at(s, n0, -hw), at(e, n0, -hw), at(e, n0, hw), at(s, n0, hw), nS, nE, nE, nS);
-    b.quad(at(s, n1, -hw), at(e, n1, -hw), at(e, n1, hw), at(s, n1, hw), mS, mE, mE, mS);
-    b.quad(at(s, n0, hw), at(e, n0, hw), at(e, n1, hw), at(s, n1, hw), s.w, e.w, e.w, s.w);
+    b.quad(at(s, n0, -hw), at(e, n0, -hw), at(e, n0, hw), at(s, n0, hw), nS, nE, nE, nS, [[-1, 0], [-1, 0], [1, 0], [1, 0]]);
+    b.quad(at(s, n1, -hw), at(e, n1, -hw), at(e, n1, hw), at(s, n1, hw), mS, mE, mE, mS, [[0, 1], [0, 1], [0, 1], [0, 1]]);
+    b.quad(at(s, n0, hw), at(e, n0, hw), at(e, n1, hw), at(s, n1, hw), s.w, e.w, e.w, s.w, [[0, 0], [0, 0], [0, 1], [0, 1]]);
     const wS = s.w.clone().negate(), wE = e.w.clone().negate();
-    b.quad(at(s, n0, -hw), at(e, n0, -hw), at(e, n1, -hw), at(s, n1, -hw), wS, wE, wE, wS);
+    b.quad(at(s, n0, -hw), at(e, n0, -hw), at(e, n1, -hw), at(s, n1, -hw), wS, wE, wE, wS, [[0, 0], [0, 0], [0, 1], [0, 1]]);
   }
   const cap = (s: Sample, out: THREE.Vector3) => {
     const c = new Builder();
-    c.quad(at(s, n0, -hw), at(s, n0, hw), at(s, n1, hw), at(s, n1, -hw), out, out, out, out);
+    c.quad(at(s, n0, -hw), at(s, n0, hw), at(s, n1, hw), at(s, n1, -hw), out, out, out, out, [[0, 0], [0, 0], [0, 1], [0, 1]]);
     return c.geometry();
   };
   const first = S[0], last = S[S.length - 1];

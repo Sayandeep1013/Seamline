@@ -1,15 +1,106 @@
 {
-  "id": "L02", "name": "Turn", "palette": "mustard", "tip": "Tap the curved piece to turn it", "views": [0], "startView": 0,
+  "id": "L02",
+  "name": "Turn",
+  "palette": "mustard",
+  "tip": "Tap the curved piece to turn it",
+  "views": [
+    0
+  ],
+  "startView": 0,
   "fixed": [
-    { "id": "A", "type": "straight", "from": [0, 4, 0], "to": [1, 4, 0], "n": "+y", "ends": ["start", "open"] },
-    { "id": "E1", "type": "convex", "from": [1, 4, 0], "t": "+x", "n": "+y" },
-    { "id": "P", "type": "straight", "from": [2, 3, 0], "to": [2, 1, 0], "n": "+x" },
-    { "id": "F", "type": "straight", "from": [4, 1, 1], "to": [6, 1, 1], "n": "+y", "ends": ["open", "goal"] }
+    {
+      "id": "A",
+      "type": "straight",
+      "from": [
+        0,
+        4,
+        0
+      ],
+      "to": [
+        1,
+        4,
+        0
+      ],
+      "n": "+y",
+      "ends": [
+        "start",
+        "open"
+      ]
+    },
+    {
+      "id": "E1",
+      "type": "convex",
+      "from": [
+        1,
+        4,
+        0
+      ],
+      "t": "+x",
+      "n": "+y"
+    },
+    {
+      "id": "P",
+      "type": "straight",
+      "from": [
+        2,
+        3,
+        0
+      ],
+      "to": [
+        2,
+        1,
+        0
+      ],
+      "n": "+x"
+    },
+    {
+      "id": "F",
+      "type": "straight",
+      "from": [
+        4,
+        1,
+        1
+      ],
+      "to": [
+        6,
+        1,
+        1
+      ],
+      "n": "+y",
+      "ends": [
+        "open",
+        "goal"
+      ]
+    }
   ],
   "pieces": [
-    { "id": "EL", "shape": "elbow",
-      "segments": [{ "id": "EL", "type": "concave", "from": [2, 1, 0], "t": "-y", "n": "+x" }],
-      "rotate": { "axis": "z", "pivot": [3, 1, 0], "initial": 2 } }
+    {
+      "id": "EL",
+      "shape": "elbow",
+      "segments": [
+        {
+          "id": "EL",
+          "type": "concave",
+          "from": [
+            4,
+            3,
+            2
+          ],
+          "t": "-y",
+          "n": "+x"
+        }
+      ],
+      "rotate": {
+        "axis": "z",
+        "pivot": [
+          5,
+          3,
+          2
+        ],
+        "initial": 2
+      }
+    }
   ],
-  "restPads": [], "par": 2
+  "restPads": [],
+  "par": 2
 }

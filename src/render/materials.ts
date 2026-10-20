@@ -5,36 +5,95 @@ import type { Palette } from './palette';
 /** World-space camera right vector, shared by every three-tone material. */
 export const camRight = { value: new THREE.Vector3(1, 0, -1).normalize() };
 
+/** Shared by every three-tone material: camera, depth-tint and shadow settings. */
+export const depthUniforms = {
+  uViewDir: { value: new THREE.Vector3(1, 1, 1).normalize() },
+  uTarget: { value: new THREE.Vector3() },
+  /** Effective depth at which the tint is 0 (nearest) and full (farthest). */
+  uDepthNear: { value: 5 },
+  uDepthFar: { value: -5 },
+  uTintStrength: { value: 0.16 },
+  uBg: { value: new THREE.Color('#E3DC4E') },
+  uShadowTint: { value: new THREE.Color(0.8, 0.75, 0.58) },
+};
+
+/**
+ * Three-tone flat shading by face normal, plus the depth cues:
+ * - soft shadows from the level light (warm-tinted, never grey);
+ * - darker toward the bottom of side faces, a faint bevel highlight on top edges;
+ * - a slight fade toward the background with depth. `uDepthShift` lets a joined piece borrow its
+ *   partner's depth so a perceptual seam never shows a colour step.
+ */
 export function toneMaterial(top: string, left: string, right: string, opts: { opacity?: number } = {}) {
   return new THREE.ShaderMaterial({
+    lights: true,
     transparent: opts.opacity !== undefined,
     depthWrite: opts.opacity === undefined,
     uniforms: {
+      ...THREE.UniformsUtils.clone(THREE.UniformsLib.lights),
       uTop: { value: new THREE.Color(top) },
       uLeft: { value: new THREE.Color(left) },
       uRight: { value: new THREE.Color(right) },
       uCamRight: camRight,
       uOpacity: { value: opts.opacity ?? 1 },
+      uDepthShift: { value: 0 },
+      ...depthUniforms,
     },
     vertexShader: /* glsl */ `
+      #include <common>
+      #include <shadowmap_pars_vertex>
+      attribute vec2 aFace;
       varying vec3 vN;
+      varying vec3 vW;
+      varying vec2 vFace;
       void main() {
+        #include <beginnormal_vertex>
+        #include <defaultnormal_vertex>
+        #include <begin_vertex>
+        #include <project_vertex>
+        #include <worldpos_vertex>
+        #include <shadowmap_vertex>
         vN = normalize(mat3(modelMatrix) * normal);
-        gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
+        vW = (modelMatrix * vec4(position, 1.0)).xyz;
+        vFace = aFace;
       }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uTop, uLeft, uRight, uCamRight;
-      uniform float uOpacity;
+      #include <common>
+      #include <packing>
+      #include <lights_pars_begin>
+      #include <shadowmap_pars_fragment>
+      #include <shadowmask_pars_fragment>
+      uniform vec3 uTop, uLeft, uRight, uCamRight, uViewDir, uTarget, uBg, uShadowTint;
+      uniform float uOpacity, uDepthShift, uDepthNear, uDepthFar, uTintStrength;
       varying vec3 vN;
+      varying vec3 vW;
+      varying vec2 vFace;
       void main() {
         vec3 n = normalize(vN);
         vec3 side = mix(uLeft, uRight, smoothstep(-0.25, 0.25, dot(n, uCamRight)));
         vec3 c = mix(side, uTop, smoothstep(0.35, 0.65, n.y));
         c = mix(c, uRight * 0.85, smoothstep(-0.35, -0.65, n.y));
+        // Solidity: a bevel glint along top edges, and side faces darkening toward their base.
+        c = mix(c, min(c * 1.06 + 0.035, vec3(1.0)), smoothstep(0.78, 0.96, abs(vFace.x)) * step(0.5, n.y));
+        c *= 1.0 - 0.13 * vFace.y;
+        // Soft warm shadow from the level light.
+        float sh = getShadowMask();
+        c = mix(c * uShadowTint, c, sh);
+        // Gentle fade toward the background with (join-adjusted) depth.
+        float d = dot(vW - uTarget, uViewDir) + uDepthShift;
+        c = mix(c, uBg, smoothstep(uDepthNear, uDepthFar, d) * uTintStrength);
         gl_FragColor = vec4(c, uOpacity);
         #include <colorspace_fragment>
       }`,
   });
+}
+
+/** A copy of a tone material with its own depth shift (other uniforms stay shared by reference). */
+export function toneVariant(base: THREE.ShaderMaterial) {
+  const m = base.clone();
+  for (const k of Object.keys(base.uniforms)) if (k !== 'uDepthShift') m.uniforms[k] = base.uniforms[k];
+  m.uniforms.uDepthShift = { value: 0 };
+  return m;
 }
 
 export function ballMaterial(p: Palette, radius: number) {
