@@ -34,6 +34,11 @@ export function tween(
   return tw;
 }
 
+/** Stop everything (e.g. when a level is torn down) so no stale callback touches the next one. */
+export function cancelAllTweens() {
+  for (const tw of tweens) tw.active = false;
+}
+
 export function cancelTweens(tag: string) {
   for (const tw of tweens) if (tw.active && tw.tag === tag) tw.active = false;
 }

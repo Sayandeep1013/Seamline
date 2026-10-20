@@ -1,0 +1,17 @@
+{
+  "id": "L05", "name": "Hold", "palette": "mustard", "tip": "The ball waits on the gold cradle. Tap it to roll on", "views": [0], "startView": 0,
+  "fixed": [
+    { "id": "A", "type": "straight", "from": [0, 0, 0], "to": [2, 0, 0], "n": "+y", "ends": ["start", "open"] },
+    { "id": "P", "type": "straight", "from": [6, 2, 2], "to": [7, 2, 2], "n": "+y" },
+    { "id": "UP", "type": "concave", "from": [7, 2, 2], "t": "+x", "n": "+y" },
+    { "id": "W", "type": "straight", "from": [8, 3, 2], "to": [8, 6, 2], "n": "-x" },
+    { "id": "TOP", "type": "convex", "from": [8, 6, 2], "t": "+y", "n": "-x" },
+    { "id": "G", "type": "straight", "from": [4, 0, -5], "to": [6, 0, -5], "n": "+y", "ends": ["open", "goal"] }
+  ],
+  "pieces": [
+    { "id": "S", "shape": "beam",
+      "segments": [{ "id": "S", "type": "straight", "from": [3, 1, 0], "to": [5, 1, 0], "n": "+y" }],
+      "slide": { "axis": "z", "stops": [-4, -3, -2, -1, 0, 1], "initial": -2 } }
+  ],
+  "restPads": [[7, 2, 2]], "par": 3
+}

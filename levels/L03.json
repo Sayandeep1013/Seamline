@@ -1,0 +1,16 @@
+{
+  "id": "L03", "name": "The Star", "palette": "mustard", "tip": "Some pieces catch the ball as it falls past", "views": [0], "startView": 0,
+  "fixed": [
+    { "id": "A", "type": "straight", "from": [0, 6, 0], "to": [1, 6, 0], "n": "+y", "ends": ["start", "open"] },
+    { "id": "C1", "type": "convex", "from": [1, 6, 0], "t": "+x", "n": "+y" },
+    { "id": "P", "type": "straight", "from": [2, 5, 0], "to": [2, 0, 0], "n": "+x" },
+    { "id": "C2", "type": "concave", "from": [2, 0, 0], "t": "-y", "n": "+x" },
+    { "id": "D", "type": "straight", "from": [3, -1, 0], "to": [5, -1, 0], "n": "+y", "ends": ["open", "cap"] },
+    { "id": "H", "type": "straight", "from": [7, 5, 4], "to": [10, 5, 4], "n": "+y", "ends": ["open", "goal"] }
+  ],
+  "pieces": [
+    { "id": "ST", "shape": "star", "center": [4, 0, 2], "plane": "z",
+      "slide": { "axis": "y", "stops": [0, 1, 2, 3, 4, 5], "initial": 0 } }
+  ],
+  "restPads": [], "par": 1
+}

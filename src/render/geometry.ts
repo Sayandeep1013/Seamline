@@ -1,7 +1,7 @@
-// Procedural meshes for each piece family (GAME_PLAN §8). Everything is built from the track data.
+// Procedural meshes for each piece family (GAME_PLAN §8). Everything is swept along the track data.
 import * as THREE from 'three';
-import { AXES, type V3, cross } from '../core/grid';
-import { type EndFlag, type Segment, lengthOf, tangentOf } from '../core/track';
+import { AXES, type V3 } from '../core/grid';
+import { type EndFlag, type Segment, frameAt, lengthOf } from '../core/track';
 
 /** Ball radius and beam cross-section (world units). */
 export const BALL_R = 0.28;
@@ -10,83 +10,96 @@ export const BEAM_D = 0.6;
 /** Beams extend past non-joinable ends so the ball sits on solid track; open ends stop exactly at the endpoint. */
 const END_EXT: Record<EndFlag, number> = { open: 0, cap: 0.5, start: 0.5, goal: 0.55, drop: 0 };
 
-const v = (a: V3) => new THREE.Vector3(a[0], a[1], a[2]);
+const vec = (a: V3) => new THREE.Vector3(a[0], a[1], a[2]);
 
-export interface SegmentFrame {
-  t: THREE.Vector3; n: THREE.Vector3; w: THREE.Vector3; from: THREE.Vector3; len: number;
+interface Sample { p: THREE.Vector3; t: THREE.Vector3; n: THREE.Vector3; w: THREE.Vector3; d?: number }
+/** Marker for "this sample's bottom depth" in trackGeometry. */
+const BOTTOM = Number.NEGATIVE_INFINITY;
+
+/** Frames along the ball path, sampled densely on curves; straights get their end extensions. */
+function samples(seg: Segment, extra = 0): Sample[] {
+  const out: Sample[] = [];
+  const len = lengthOf(seg);
+  const steps = seg.kind === 'straight' ? 1 : 14;
+  for (let i = 0; i <= steps; i++) {
+    const f = frameAt(seg, 1, (len * i) / steps);
+    const t = vec(f.t).normalize(), n = vec(f.n).normalize();
+    out.push({ p: vec(f.p), t, n, w: new THREE.Vector3().crossVectors(t, n) });
+  }
+  if (seg.kind === 'straight') {
+    const e0 = END_EXT[seg.ends[0]] + extra, e1 = END_EXT[seg.ends[1]] + extra;
+    out[0].p.addScaledVector(out[0].t, -e0);
+    out[out.length - 1].p.addScaledVector(out[out.length - 1].t, e1);
+  }
+  return out;
 }
 
-export function frameOf(seg: Segment): SegmentFrame {
-  const t = AXES[tangentOf(seg)];
-  const n = AXES[seg.n];
-  return { t: v(t), n: v(n), w: v(cross(t, n)), from: v(seg.from), len: lengthOf(seg) };
-}
-
-/** Build a quad, flipping winding so it faces `outward`. */
-function pushQuad(pos: number[], nor: number[], uv: number[], c: THREE.Vector3[], outward: THREE.Vector3) {
-  const e1 = c[1].clone().sub(c[0]);
-  const e2 = c[2].clone().sub(c[0]);
-  const order = e1.cross(e2).dot(outward) >= 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
-  const uvs = [[0, 0], [1, 0], [1, 1], [0, 1]];
-  for (const i of order) {
-    pos.push(c[i].x, c[i].y, c[i].z);
-    nor.push(outward.x, outward.y, outward.z);
-    uv.push(uvs[i][0], uvs[i][1]);
+class Builder {
+  pos: number[] = []; nor: number[] = []; uv: number[] = [];
+  quad(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3,
+    na: THREE.Vector3, nb: THREE.Vector3, nc: THREE.Vector3, nd: THREE.Vector3) {
+    // Keep the winding consistent with the outward normal.
+    const face = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+    const flip = face.dot(new THREE.Vector3().add(na).add(nc)) < 0;
+    const tri = flip ? [[a, na], [c, nc], [b, nb], [a, na], [d, nd], [c, nc]] : [[a, na], [b, nb], [c, nc], [a, na], [c, nc], [d, nd]];
+    for (const [p, n] of tri) { this.pos.push(p.x, p.y, p.z); this.nor.push(n.x, n.y, n.z); this.uv.push(0, 0); }
+  }
+  geometry() {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
+    return g;
   }
 }
 
-function geometryFrom(pos: number[], nor: number[], uv: number[]) {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  return g;
-}
-
-export interface BeamGeometry {
+export interface TrackGeometry {
   body: THREE.BufferGeometry;
   /** End faces, kept separate so they can be hidden while that end is joined (seamless on screen). */
   caps: [THREE.BufferGeometry, THREE.BufferGeometry];
 }
 
-/** A straight beam under the ball path: surface at −R along n, depth D, width W. */
-export function beamGeometry(seg: Segment, extra = 0): BeamGeometry {
-  const f = frameOf(seg);
-  const a = -END_EXT[seg.ends[0]] - extra;
-  const b = f.len + END_EXT[seg.ends[1]] + extra;
+/** Solid slab under the ball path: riding surface at −R along n, depth D, width W. Works for every segment kind. */
+export function trackGeometry(seg: Segment, extra = 0, depth: number | ((u: number) => number) = BEAM_D): TrackGeometry {
+  const S = samples(seg, extra);
   const hw = BEAM_W / 2 + extra;
-  const n0 = -BALL_R + extra, n1 = -BALL_R - BEAM_D - extra;
-  const P = (tv: number, nv: number, wv: number) =>
-    f.from.clone().addScaledVector(f.t, tv).addScaledVector(f.n, nv).addScaledVector(f.w, wv);
-
-  const body = { pos: [] as number[], nor: [] as number[], uv: [] as number[] };
-  const q = (c: THREE.Vector3[], out: THREE.Vector3) => pushQuad(body.pos, body.nor, body.uv, c, out);
-  q([P(a, n0, -hw), P(b, n0, -hw), P(b, n0, hw), P(a, n0, hw)], f.n);
-  q([P(a, n1, -hw), P(b, n1, -hw), P(b, n1, hw), P(a, n1, hw)], f.n.clone().negate());
-  q([P(a, n0, hw), P(b, n0, hw), P(b, n1, hw), P(a, n1, hw)], f.w);
-  q([P(a, n0, -hw), P(b, n0, -hw), P(b, n1, -hw), P(a, n1, -hw)], f.w.clone().negate());
-
-  const cap = (tv: number, out: THREE.Vector3) => {
-    const c = { pos: [] as number[], nor: [] as number[], uv: [] as number[] };
-    pushQuad(c.pos, c.nor, c.uv, [P(tv, n0, -hw), P(tv, n0, hw), P(tv, n1, hw), P(tv, n1, -hw)], out);
-    return geometryFrom(c.pos, c.nor, c.uv);
+  const n0 = -BALL_R + extra;
+  const dAt = (i: number) => -BALL_R - (typeof depth === 'number' ? depth : depth(i / (S.length - 1))) - extra;
+  S.forEach((s, i) => (s.d = dAt(i)));
+  const at = (s: Sample, nv: number, wv: number) =>
+    s.p.clone().addScaledVector(s.n, nv === BOTTOM ? s.d! : nv).addScaledVector(s.w, wv);
+  const n1 = BOTTOM;
+  const b = new Builder();
+  for (let i = 0; i < S.length - 1; i++) {
+    const s = S[i], e = S[i + 1];
+    const nS = s.n, nE = e.n, mS = s.n.clone().negate(), mE = e.n.clone().negate();
+    b.quad(at(s, n0, -hw), at(e, n0, -hw), at(e, n0, hw), at(s, n0, hw), nS, nE, nE, nS);
+    b.quad(at(s, n1, -hw), at(e, n1, -hw), at(e, n1, hw), at(s, n1, hw), mS, mE, mE, mS);
+    b.quad(at(s, n0, hw), at(e, n0, hw), at(e, n1, hw), at(s, n1, hw), s.w, e.w, e.w, s.w);
+    const wS = s.w.clone().negate(), wE = e.w.clone().negate();
+    b.quad(at(s, n0, -hw), at(e, n0, -hw), at(e, n1, -hw), at(s, n1, -hw), wS, wE, wE, wS);
+  }
+  const cap = (s: Sample, out: THREE.Vector3) => {
+    const c = new Builder();
+    c.quad(at(s, n0, -hw), at(s, n0, hw), at(s, n1, hw), at(s, n1, -hw), out, out, out, out);
+    return c.geometry();
   };
-  return {
-    body: geometryFrom(body.pos, body.nor, body.uv),
-    caps: [cap(a, f.t.clone().negate()), cap(b, f.t)],
-  };
+  const first = S[0], last = S[S.length - 1];
+  return { body: b.geometry(), caps: [cap(first, first.t.clone().negate()), cap(last, last.t.clone())] };
 }
 
 /**
- * Glow quad covering a beam's cross-section at distance `at` along it.
+ * Glow quad covering a segment's cross-section at one end.
  * uv.y = 1 at the riding surface; uv.x runs across the width (0 at −w, 1 at +w).
  */
-export function seamGeometry(seg: Segment, at: number) {
-  const f = frameOf(seg);
+export function seamGeometry(seg: Segment, atEnd: 0 | 1) {
+  const f = frameAt(seg, 1, atEnd ? lengthOf(seg) : 0);
+  const p = vec(f.p), t = vec(f.t), n = vec(f.n);
+  const w = new THREE.Vector3().crossVectors(t, n);
   const pad = 0.04;
   const hw = BEAM_W / 2 + pad;
   const n0 = -BALL_R + pad, n1 = -BALL_R - BEAM_D - pad;
-  const P = (nv: number, wv: number) => f.from.clone().addScaledVector(f.t, at).addScaledVector(f.n, nv).addScaledVector(f.w, wv);
+  const P = (nv: number, wv: number) => p.clone().addScaledVector(n, nv).addScaledVector(w, wv);
   const c = [P(n1, -hw), P(n1, hw), P(n0, hw), P(n0, -hw)];
   const pos: number[] = [], uv: number[] = [];
   const uvs = [[0, 0], [1, 0], [1, 1], [0, 1]];
@@ -94,37 +107,50 @@ export function seamGeometry(seg: Segment, at: number) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  return { geometry: g, w: f.w, aspect: (BEAM_W + 2 * pad) / (BEAM_D + 2 * pad) };
+  return { geometry: g, w, aspect: (BEAM_W + 2 * pad) / (BEAM_D + 2 * pad) };
 }
 
-/** Rounded handle nub on the camera-facing side of a movable piece. */
-export function nubGeometry(seg: Segment, side: 1 | -1) {
-  const f = frameOf(seg);
+/** Rounded handle nub on the side of a movable piece that faces the camera. */
+export function nubGeometry(seg: Segment, view: V3) {
+  const f = frameAt(seg, 1, lengthOf(seg) / 2);
+  const t = vec(f.t), n = vec(f.n);
+  const w = new THREE.Vector3().crossVectors(t, n);
+  const side = w.dot(vec(view)) >= 0 ? 1 : -1;
   const g = new THREE.CylinderGeometry(0.13, 0.13, 0.1, 20);
-  // Cylinder axis is +y; turn it to point along ±w.
-  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), f.w.clone().multiplyScalar(side)));
-  const c = f.from.clone().addScaledVector(f.t, f.len / 2).addScaledVector(f.n, -BALL_R - BEAM_D / 2)
-    .addScaledVector(f.w, side * (BEAM_W / 2 + 0.03));
+  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), w.clone().multiplyScalar(side)));
+  const c = vec(f.p).addScaledVector(n, -BALL_R - BEAM_D / 2).addScaledVector(w, side * (BEAM_W / 2 + 0.03));
+  g.translate(c.x, c.y, c.z);
+  return g;
+}
+
+/** Small pivot cap marking the axis a rotatable piece turns about. */
+export function pivotGeometry(pivot: V3, axis: 'x' | 'y' | 'z', view: V3) {
+  const a = vec(AXES[`+${axis}`]);
+  const side = a.dot(vec(view)) >= 0 ? 1 : -1;
+  const g = new THREE.CylinderGeometry(0.16, 0.16, 0.08, 24);
+  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), a.clone().multiplyScalar(side)));
+  const c = vec(pivot).addScaledVector(a, side * (BEAM_W / 2 + 0.05));
   g.translate(c.x, c.y, c.z);
   return g;
 }
 
 /** Start hook: a post beside the start with an arm across the track that swings up on release. */
-export function hookParts(seg: Segment, side: 1 | -1) {
-  const f = frameOf(seg);
-  const base = f.from.clone().addScaledVector(f.t, 0.42).addScaledVector(f.n, -BALL_R).addScaledVector(f.w, side * (BEAM_W / 2 - 0.08));
+export function hookParts(seg: Segment, view: V3) {
+  const f = frameAt(seg, 1, 0);
+  const t = vec(f.t), n = vec(f.n), w = new THREE.Vector3().crossVectors(t, n);
+  const side: 1 | -1 = w.dot(vec(view)) >= 0 ? 1 : -1;
+  const base = vec(f.p).addScaledVector(t, 0.42).addScaledVector(n, -BALL_R).addScaledVector(w, side * (BEAM_W / 2 - 0.08));
   const postH = BALL_R * 2 + 0.12;
   const post = new THREE.BoxGeometry(0.12, postH, 0.12);
   post.translate(0, postH / 2, 0);
   const armLen = BEAM_W - 0.12;
   const arm = new THREE.BoxGeometry(0.09, 0.09, armLen);
   arm.translate(0, 0, -side * armLen / 2);
-  // Orient the local frame (x = t, y = n, z = w) into world space.
-  const basis = new THREE.Matrix4().makeBasis(f.t, f.n, f.w);
+  const basis = new THREE.Matrix4().makeBasis(t, n, w);
   post.applyMatrix4(basis);
   arm.applyMatrix4(basis);
-  const pivot = base.clone().addScaledVector(f.n, postH - 0.06);
-  return { post, postAt: base, arm, pivot, hingeAxis: f.t.clone() };
+  const pivot = base.clone().addScaledVector(n, postH - 0.06);
+  return { post, postAt: base, arm, pivot, hingeAxis: t.clone(), side };
 }
 
 /** Shallow chime bowl sitting on the surface at the goal end. */
@@ -136,7 +162,19 @@ export function bowlParts(at: V3, n: THREE.Vector3) {
   rim.rotateX(Math.PI / 2);
   rim.translate(0, 0.148, 0);
   const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
-  const surface = v(at).addScaledVector(n, -BALL_R);
+  const surface = vec(at).addScaledVector(n, -BALL_R);
   for (const g of [bowl, rim]) { g.applyQuaternion(q); g.translate(surface.x, surface.y, surface.z); }
   return { bowl, rim, surface };
 }
+
+/** Rest pad: a low cradle ring on the riding surface. */
+export function padGeometry(at: V3, n: THREE.Vector3) {
+  const ring = new THREE.TorusGeometry(0.3, 0.045, 10, 40);
+  ring.rotateX(Math.PI / 2);
+  ring.translate(0, 0.03, 0);
+  ring.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), n));
+  const s = vec(at).addScaledVector(n, -BALL_R);
+  ring.translate(s.x, s.y, s.z);
+  return ring;
+}
+

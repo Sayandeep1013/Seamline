@@ -1,7 +1,8 @@
-// Renderer, true-isometric orthographic camera and fit-to-screen.
+// Renderer, true-isometric orthographic camera, view turns and fit-to-screen.
 import * as THREE from 'three';
-import { VIEWS } from '../core/grid';
 import { camRight } from './materials';
+
+const Y = new THREE.Vector3(0, 1, 0);
 
 export class Stage {
   readonly renderer: THREE.WebGLRenderer;
@@ -9,7 +10,8 @@ export class Stage {
   readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
   private target = new THREE.Vector3();
   private halfExtent = { x: 5, y: 5 };
-  private viewAngle = 0;
+  /** Continuous view angle in quarter turns; integers are the four views of GAME_PLAN §4.1. */
+  angle = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: import.meta.env.DEV });
@@ -20,32 +22,45 @@ export class Stage {
     window.addEventListener('resize', () => this.resize());
   }
 
-  /** Continuous view angle in quarter turns (0..4); integer values are the four views of §4.1. */
+  /** Unit vector from the target toward the camera for a (possibly fractional) view angle. */
+  viewDir(quarterTurns: number) {
+    return new THREE.Vector3(1, 1, 1).normalize().applyAxisAngle(Y, (quarterTurns * Math.PI) / 2);
+  }
+
   setView(quarterTurns: number) {
-    this.viewAngle = quarterTurns;
-    const a = (-quarterTurns * Math.PI) / 2;
-    const v0 = new THREE.Vector3(...VIEWS[0]).normalize();
-    const dir = v0.applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
-    this.camera.position.copy(this.target).addScaledVector(dir, 100);
+    this.angle = quarterTurns;
+    this.camera.position.copy(this.target).addScaledVector(this.viewDir(quarterTurns), 100);
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(this.target);
     this.camera.updateMatrixWorld();
     camRight.value.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
   }
 
-  /** Fit a set of world points on screen with a comfortable margin, centred. */
-  fit(points: THREE.Vector3[], margin = 1.35) {
-    this.setView(this.viewAngle);
-    const inv = this.camera.matrixWorldInverse;
-    const min = new THREE.Vector3(Infinity, Infinity, Infinity), max = min.clone().negate();
-    for (const p of points) { const q = p.clone().applyMatrix4(inv); min.min(q); max.max(q); }
-    const centerView = min.clone().add(max).multiplyScalar(0.5);
-    // Move the target to the centre of the points (in view space x/y), keeping the view direction.
-    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
-    const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
-    this.target.addScaledVector(right, centerView.x).addScaledVector(up, centerView.y);
-    this.halfExtent = { x: ((max.x - min.x) / 2) * margin, y: ((max.y - min.y) / 2) * margin };
-    this.setView(this.viewAngle);
+  /** Fit the points on screen in every view the level allows, so turning never changes the zoom. */
+  fit(points: THREE.Vector3[], views: number[], margin = 1.12) {
+    const box = new THREE.Box3().setFromPoints(points);
+    box.getCenter(this.target);
+    if (views.length === 1) {
+      // Single view: centre the level's on-screen footprint, not its 3D box.
+      this.setView(views[0]);
+      const inv = this.camera.matrixWorldInverse;
+      const sb = new THREE.Box3().setFromPoints(points.map((p) => p.clone().applyMatrix4(inv)));
+      const c = sb.getCenter(new THREE.Vector3()).applyMatrix4(this.camera.matrixWorld);
+      this.target.copy(c);
+    }
+    let hx = 0, hy = 0;
+    for (const v of views) {
+      this.setView(v);
+      const inv = this.camera.matrixWorldInverse;
+      const c = this.target.clone().applyMatrix4(inv);
+      for (const p of points) {
+        const q = p.clone().applyMatrix4(inv).sub(c);
+        hx = Math.max(hx, Math.abs(q.x));
+        hy = Math.max(hy, Math.abs(q.y));
+      }
+    }
+    this.halfExtent = { x: hx * margin, y: hy * margin };
+    this.setView(this.angle);
     this.resize();
   }
 
@@ -53,8 +68,9 @@ export class Stage {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
     const aspect = w / h;
-    let hy = Math.max(this.halfExtent.y, this.halfExtent.x / aspect);
-    hy = Math.max(hy, 2);
+    // Leave room for the HUD: the scene uses the middle ~78% of a portrait screen.
+    let hy = Math.max(this.halfExtent.y, this.halfExtent.x / aspect) / 0.78;
+    hy = Math.max(hy, 2.5);
     this.camera.top = hy;
     this.camera.bottom = -hy;
     this.camera.left = -hy * aspect;
@@ -62,12 +78,7 @@ export class Stage {
     this.camera.updateProjectionMatrix();
   }
 
-  /** World units per CSS pixel. */
-  get unitsPerPixel() {
-    return (this.camera.top - this.camera.bottom) / window.innerHeight;
-  }
-
-  /** Screen-space (CSS px, y down) direction and length of a world vector. */
+  /** Screen-space (CSS px, y down) vector for a world direction. */
   screenVector(world: THREE.Vector3) {
     const a = new THREE.Vector3().project(this.camera);
     const b = world.clone().project(this.camera);

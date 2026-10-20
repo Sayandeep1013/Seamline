@@ -1,0 +1,60 @@
+name: Android
+
+# Native builds happen here, never on the owner's PC (GAME_PLAN §10.5).
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v6
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npx cap sync android
+
+      - name: Build APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Name the APK
+        run: |
+          NAME=seamline-${GITHUB_REF_NAME//\//-}.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$NAME"
+          echo "APK=$NAME" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: seamline-apk
+          path: ${{ env.APK }}
+          retention-days: 30
+
+      # A version tag publishes a GitHub Release with the APK attached.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$APK" \
+            --title "Seamline $GITHUB_REF_NAME" \
+            --notes-file docs/release-notes.md

@@ -1,6 +1,6 @@
 // The join rule (GAME_PLAN §4.3) and continuation priority (§4.4).
-import { type V3, VIEWS, sub, viewMultiple } from './grid';
-import { type Dir, type Endpoint, type Segment, entryOf } from './track';
+import { AXES, type V3, VIEWS, add, scale, sub, viewMultiple } from './grid';
+import { type Dir, type Endpoint, type Segment, entryOf, lengthOf } from './track';
 
 /** Returns k if exit A joins entry B in view v (A.p − B.p = k·v, same tangent, same normal), else null. */
 export function joinK(a: Pick<Endpoint, 'p' | 't' | 'n'>, b: Endpoint, v: V3): number | null {
@@ -12,6 +12,8 @@ export function joinK(a: Pick<Endpoint, 'p' | 't' | 'n'>, b: Endpoint, v: V3): n
 export interface Continuation {
   seg: Segment;
   dir: Dir;
+  /** Distance along the segment (in `dir`) where the ball enters: 0 at an end, > 0 at a mid-track node. */
+  dist: number;
   k: number;
 }
 
@@ -30,7 +32,21 @@ function better(a: Continuation, b: Continuation | null): boolean {
   if (!b) return true;
   const ak = Math.abs(a.k), bk = Math.abs(b.k);
   if (ak !== bk) return ak < bk;
-  return a.seg.id < b.seg.id;
+  if (a.seg.id !== b.seg.id) return a.seg.id < b.seg.id;
+  return a.dist < b.dist;
+}
+
+/** Every place the ball could enter a segment: both ends, plus each integer node along a straight. */
+export function* entries(seg: Segment): Generator<{ dir: Dir; dist: number; e: Endpoint }> {
+  for (const dir of [1, -1] as const) {
+    const e = entryOf(seg, dir);
+    yield { dir, dist: 0, e };
+    if (seg.kind !== 'straight') continue;
+    const len = lengthOf(seg);
+    for (let d = 1; d < len; d++) {
+      yield { dir, dist: d, e: { p: add(e.p, scale(AXES[e.t], d)), t: e.t, n: e.n, flag: 'open' } };
+    }
+  }
 }
 
 /**
@@ -52,10 +68,10 @@ export function findContinuation(
     if (seg.id === current.id || !joinable(world, seg)) continue;
     if (current.pieceId !== null && seg.pieceId === current.pieceId) continue;
     if (piecesOnly && seg.pieceId === null) continue;
-    for (const dir of [1, -1] as const) {
-      const k = joinK(at, entryOf(seg, dir), v);
+    for (const { dir, dist, e } of entries(seg)) {
+      const k = joinK(at, e, v);
       if (k === null) continue;
-      const c = { seg, dir, k };
+      const c = { seg, dir, dist, k };
       if (seg.pieceId !== null) { if (better(c, piece)) piece = c; }
       else if (k === 0) { if (better(c, physical)) physical = c; }
       else if (better(c, perceptual)) perceptual = c;

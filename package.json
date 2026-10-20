@@ -1,20 +1,32 @@
 {
   "name": "seamline",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "solve-all": "vitest run tests/levels.test.ts",
+    "solve": "vitest run tests/levels.test.ts --silent=false",
+    "android:sync": "npm run build && cap sync android",
+    "icons": "node tools/make-icons.mjs && capacitor-assets generate --android --iconBackgroundColor \"#E3DC4E\" --splashBackgroundColor \"#E3DC4E\""
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.4",
     "@fontsource/outfit": "5.3.0",
     "three": "0.186.1"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.3",
     "@types/three": "0.186.0",
     "typescript": "7.0.2",
     "vite": "8.3.4",

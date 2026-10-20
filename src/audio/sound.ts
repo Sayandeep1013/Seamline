@@ -15,7 +15,9 @@ class Sound {
   private chord = [0, 2, 4];
   private voices = 0;
   private lastTick = 0;
+  private padBus!: GainNode;
   muted = false;
+  music = true;
 
   /** Must be called from a user gesture. */
   unlock() {
@@ -44,6 +46,9 @@ class Sound {
     const wet = ctx.createGain();
     wet.gain.value = 0.35;
     this.verb.connect(wet).connect(this.master);
+    this.padBus = ctx.createGain();
+    this.padBus.gain.value = this.music ? 1 : 0;
+    this.padBus.connect(this.master);
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) void ctx.suspend();
@@ -64,6 +69,11 @@ class Sound {
       }
     }
     return b;
+  }
+
+  setMusic(on: boolean) {
+    this.music = on;
+    if (this.ctx) this.padBus.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.6);
   }
 
   setMuted(m: boolean) {
@@ -126,6 +136,9 @@ class Sound {
 
   snap() { this.thock(0.6, 200); }
   join() { this.chime(0, 0.7, 1); this.chime(3, 0.6, 1, 0.16); } // rising fifth
+  turn() { this.chime(1, 0.3, 0); this.chime(4, 0.25, 0, 0.3); }
+  rotate(step: number) { this.chime(step + 1, 0.4, 1); this.thock(0.35, 260); }
+  rest() { this.chime(2, 0.45, 1); }
   bump() { this.thock(0.5, 160); }
   release() { this.chime(2, 0.4, 1); this.thock(0.3, 300); }
   win() { [0, 2, 4, 5].forEach((d, i) => this.chime(d, 0.8 - i * 0.08, 1, i * 0.22)); }
@@ -146,7 +159,7 @@ class Sound {
     this.chord = cands[(Math.random() * cands.length) | 0];
     const t = Math.max(this.nextChordAt, ctx.currentTime + 0.05);
     for (const d of this.chord) this.padVoice(note(d), t, 14);
-    if (Math.random() < 0.3) this.chime(this.chord[2] + 5, 0.25, 0, 4 + Math.random() * 4);
+    if (this.music && Math.random() < 0.3) this.chime(this.chord[2] + 5, 0.25, 0, 4 + Math.random() * 4);
     this.nextChordAt = t + 10;
   }
 
@@ -173,15 +186,10 @@ class Sound {
       return o;
     });
     f.connect(g);
-    g.connect(this.master);
+    g.connect(this.padBus);
     g.connect(this.verb);
     for (const o of [...oscs, lfo]) { o.start(t); o.stop(t + dur + 0.1); }
   }
 }
 
 export const sound = new Sound();
-
-/** Gentle haptic tick (web fallback; Capacitor Haptics replaces this in M4). */
-export function haptic(ms = 8) {
-  try { navigator.vibrate?.(ms); } catch { /* unsupported */ }
-}

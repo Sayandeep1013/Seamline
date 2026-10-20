@@ -1,0 +1,14 @@
+{
+  "id": "L06", "name": "Another Angle", "palette": "mustard", "tip": "Swipe across empty space to turn the world", "views": [0, 1], "startView": 0,
+  "fixed": [
+    { "id": "A", "type": "straight", "from": [0, 0, 0], "to": [2, 0, 0], "n": "+y", "ends": ["start", "open"] },
+    { "id": "B", "type": "straight", "from": [3, 1, -1], "to": [5, 1, -1], "n": "+y" },
+    { "id": "G", "type": "straight", "from": [9, 3, 1], "to": [11, 3, 1], "n": "+y", "ends": ["open", "goal"] }
+  ],
+  "pieces": [
+    { "id": "S", "shape": "beam",
+      "segments": [{ "id": "S", "type": "straight", "from": [6, 0, 0], "to": [8, 0, 0], "n": "+y" }],
+      "slide": { "axis": "y", "stops": [0, 1, 2, 3], "initial": 0 } }
+  ],
+  "restPads": [[5, 1, -1]], "par": 4
+}

@@ -1,7 +1,7 @@
 # SEAMLINE — Game Plan & Handoff Document
 
 > **Working title:** *Seamline* (a ball flows "seamlessly" through joins that only exist from where you're looking).
-> **Status:** M0 prototype built (L1 playable in a browser). Waiting for the owner's sign-off on feel. This document is the single source of truth.
+> **Status:** v0.1.0. Chapter 1 has 7 solver-verified levels, playable in the browser and as a portrait Android app built by GitHub Actions. This document is the single source of truth.
 > **Last updated:** 2026-10-20
 > **Purpose of this file:** Paste this whole document into any new AI chat (or hand it to a developer) and they'll have everything needed to continue: concept, rules, math, levels, tech stack, assets, milestones, and open decisions.
 
@@ -170,6 +170,10 @@ Star face geometry, with the star centred at the origin and tips at N(0,1), E(1,
 ## 6. The first 10 levels (Chapter 1: "Mustard")
 
 Teaching arc: **slide → rotate → Star → multiple pieces → loops → rest pads → camera → landing → combination → finale.**
+
+> **Shipped in v0.1.0 (7 levels, see `levels/`):** First Sight, Turn, The Star, Two Sights, Hold, Another Angle, Monument.
+> The loop level (L5 below) and the landing level (L8 below) are deferred: they need loop-aware solving and drop ends. L9 "Echo" was folded into the finale.
+> The exact coordinates are in the JSON files, and `npm run solve` prints each shortest solution.
 Each level teaches or twists exactly **one** idea. Par = minimum moves (slides, rotations, view turns and releases after the first), to be confirmed by the solver.
 
 > **About coordinates:** Level 1 is fully specified below as the reference example of the format and maths. Levels 2–10 are specified as design intent: layout, pieces, critical joins, solution, decoys and par. Exact coordinates are authored in M2 in the level editor and **must pass the solver** (§10.4), which also confirms par and checks that there are no unintended shortcuts.
@@ -521,3 +525,8 @@ adb install -r seamline-debug.apk       # after downloading the CI artifact
 | 2026-10-20 | A slide counts as **one move per drag**, whatever the distance. (The solver may still search one stop at a time, but it reports par in drags.) | L1's par of 1 needs a two-stop slide. |
 | 2026-10-20 | The end faces of open beam ends are hidden while that end is joined. The ball is drawn on top (no depth test) for about 0.8 tiles either side of a perceptual crossing. | Makes the join look seamless whichever piece is nearer the camera, and stops the ball clipping. |
 | 2026-10-20 | M0 built: Vite 8 + TypeScript 7 + three 0.186, core rules with 103 unit tests, L1 playable, seam glow, slow-mo first crossing, synthesised audio, dust motes, hint ghost. | Milestone M0. |
+| 2026-10-20 | Two more segment kinds: **convex** (a rounded edge, floor → down a wall) and **turn** (a flat bend in the floor plane). | Concave-only arcs can't take a floor downwards; turns let paths zigzag down a portrait screen. |
+| 2026-10-20 | The ball can enter a straight at any integer node, not only at its ends (k = 0 or perceptual). | Lets a ball that bounces off a Star find its way back up the pillar. |
+| 2026-10-20 | The Star is built from four concave quarter-rings that taper to points, with a ball-width slot at each tip. | With tips on the ball path, the two faces at a tip have opposite normals, so a single solid star can't carry both. |
+| 2026-10-20 | Solver moves: drag to any stop, rotate +90°, turn view ±1, release. Par = moves − 1 (the first release is free). Endless loops count as dead ends. | Matches the HUD move count. |
+| 2026-10-20 | v0.1.0: Capacitor 8 Android shell locked to portrait, a GitHub Actions APK on every push, a GitHub Release on `v*` tags. The repo is public. | The owner wants a phone app with nothing native built locally. |
