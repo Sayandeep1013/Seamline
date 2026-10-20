@@ -1,11 +1,11 @@
 // Level controller: builds the scene from level data, runs input, the ball and feedback.
 import * as THREE from 'three';
-import { type BallEvent, type BallState, type BallWorld, advance, upcoming } from '../core/ball';
+import { type BallEvent, type BallState, type BallWorld, PHYS, stepBall, upcoming } from '../core/ball';
 import { AXES, VIEWS, type V3, add, eq, manhattan, scale, sub } from '../core/grid';
 import { findContinuation } from '../core/joins';
 import { Solidity } from '../core/solidity';
 import {
-  type LevelDef, type PieceDef, type PieceState, type PieceStates, initialStates, padKeys, pieceSegments, placementOf,
+  STAR_BLADE, type LevelDef, type PieceDef, type PieceState, type PieceStates, initialStates, padKeys, pieceSegments, placementOf,
   resolveSegments, slideVector, startSegment,
 } from '../core/level';
 import { type Move, solve } from '../core/solver';
@@ -28,9 +28,11 @@ const DRAG_SLOP = 10;        // px before a tap becomes a drag
 const SWIPE_MIN = 60;        // px for a view turn
 const BALL_TAP_PX = 48;      // tap radius around the ball, in CSS px
 const HINT_IDLE = 25;        // seconds before the hint button appears
-const GRAVITY = 22;          // world units per second², tuned so short drops read as weighty but quick
-/** Star arms taper to fine points at the tips and thicken toward the centre. */
-const STAR_DEPTH = (u: number) => 0.1 + 0.62 * Math.sin(Math.PI * u);
+const GRAVITY = 22;
+/** How far toward the camera the ball is drawn, in world units (half a track width). */
+const BALL_LIFT = 0.5;          // world units per second², tuned so short drops read as weighty but quick
+/** Star blades: fine at the tips, swelling a little mid-blade, never thicker than the core's 0.25. */
+const STAR_DEPTH = (u: number) => 0.1 + (STAR_BLADE - 0.1) * Math.sin(Math.PI * u);
 
 const vec = (a: V3) => new THREE.Vector3(a[0], a[1], a[2]);
 
@@ -393,7 +395,8 @@ export class Game {
         edges.push([owner(seg), owner(c.seg), c.k]);
         this.caps.get(seg.id)![dir === 1 ? 1 : 0].visible = false;
         if (c.dist === 0) this.caps.get(c.seg.id)![c.dir === 1 ? 0 : 1].visible = false;
-        if (c.k === 0) continue;
+        // Glow only where two track *ends* meet on screen; mid-track catches (the Star's point on the pillar) stay quiet.
+        if (c.k === 0 || c.dist !== 0) continue;
         // One glow per seam, whichever direction found it first.
         const pair = [seg.id, c.seg.id].sort().join('|');
         if (pairs.has(pair)) continue;
@@ -639,6 +642,8 @@ export class Game {
     this.state.mode = 'rolling';
     this.state.bumps = 0;
     this.state.bumped = false;
+    this.state.turns = 0;
+    this.state.speed = PHYS.cruise;
     this.speed = 0;
     this.idle = 0;
     if (this.level.hint) this.clearGhostIfFor(this.level.hint.piece);
@@ -852,15 +857,11 @@ export class Game {
       if (this.pauseFor > 0) {
         this.pauseFor -= dt;
       } else {
-        const f = frameAt(this.segment(world, this.state.segId), this.state.dir, this.state.dist);
-        const slope = f.t[1] < -0.5 ? 1.3 : f.t[1] > 0.5 ? 0.8 : 1;
-        const next = upcoming(this.state, world);
-        let target = CRUISE * slope;
-        if (next.flag === 'goal' || next.flag === 'start') target *= Math.max(0.22, Math.min(1, next.remaining / 0.7));
-        this.speed = damp(this.speed, target, this.speed < target ? 5 : 9, dt);
+        // Same momentum model as the solver (gravity, level-ground pace, lossy bounces).
         this.lastSeg = this.state.segId;
         this.lastDir = this.state.dir;
-        for (const ev of advance(this.state, world, this.speed * dt)) this.onBallEvent(ev);
+        for (const ev of stepBall(this.state, world, dt)) this.onBallEvent(ev);
+        this.speed = this.state.speed ?? 0;
       }
     }
     if (this.falling) return;
@@ -1014,7 +1015,10 @@ export class Game {
       }
     }
     this.lastBallPos.copy(pos);
-    const shown = pos.clone().add(vec(VIEWS[this.view]).multiplyScalar(depthCopy));
+    // Drawn slightly toward the camera (invisible on screen): the front lip of its own track or groove can
+    // never hide it, while anything genuinely in front still does.
+    const toCam = vec(VIEWS[this.view]);
+    const shown = pos.clone().addScaledVector(toCam, depthCopy).addScaledVector(toCam.normalize(), BALL_LIFT);
     this.ball.position.copy(shown);
     this.ballShadow.position.copy(shown).addScaledVector(n, -BALL_R + 0.004);
     this.ballShadow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);

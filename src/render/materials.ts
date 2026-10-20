@@ -160,10 +160,9 @@ export function seamGlowMaterial(color: string) {
       uniform float uIntensity, uTime, uSide, uAspect;
       varying vec2 vUv;
       void main() {
+        // A single fine line across the riding surface: the seam, nothing more.
         float topEdge = (1.0 - vUv.y) / uAspect;          // uv.y = 1 at the riding surface
-        float sideEdge = uSide > 0.5 ? 1.0 - vUv.x : vUv.x;
-        float g = max(exp(-26.0 * topEdge), exp(-26.0 * sideEdge));
-        g = g * 0.9 + 0.03;                               // the faintest fill so the seam reads as one shape
+        float g = exp(-60.0 * topEdge) * smoothstep(0.0, 0.12, vUv.x) * smoothstep(1.0, 0.88, vUv.x);
         float shimmer = 0.85 + 0.15 * sin(uTime * 1.3 - (vUv.x + vUv.y) * 3.0);
         // Additive light in display space: no colour-space encode, which would amplify faint values.
         gl_FragColor = vec4(uColor * g * shimmer * uIntensity, 1.0);

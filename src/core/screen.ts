@@ -1,7 +1,7 @@
 // Screen-space reasoning for "what you see is real" physics (GAME_PLAN §4.9).
 // For view k: `depth` grows toward the camera; (sx, sy) are screen coordinates in world units.
 import { VIEWS } from './grid';
-import { type Segment, frameAt, lengthOf } from './track';
+import { type Segment, depthOf, frameAt, lengthOf } from './track';
 
 type P = readonly [number, number, number];
 
@@ -28,12 +28,13 @@ export function toScreen(p: readonly number[], view: number): ScreenPoint {
  * What a solid looks like on screen: points across its whole slab cross-section
  * (riding surface down to the base, edge to edge), sampled along its length.
  */
-const FOOT_N = [-0.3, -0.58, -0.86];
+/** Cross-section sample depths: just under the surface, mid-slab, and the slab's base. */
+const footN = (seg: Segment) => { const d = depthOf(seg); return [-0.3, -0.28 - d / 2, -0.28 - d + 0.02]; };
 const FOOT_W = [-0.38, 0, 0.38];
 const cache = new Map<string, number[][]>();
 
 export function footprint(seg: Segment): number[][] {
-  const k = `${seg.kind}|${seg.from}|${seg.to}|${seg.t0}|${seg.n0}`;
+  const k = `${seg.kind}|${seg.from}|${seg.to}|${seg.t0}|${seg.n0}|${depthOf(seg)}`;
   const hit = cache.get(k);
   if (hit) return hit;
   const len = lengthOf(seg);
@@ -42,7 +43,7 @@ export function footprint(seg: Segment): number[][] {
   for (let i = 0; i <= steps; i++) {
     const f = frameAt(seg, 1, (len * i) / steps);
     const w = crossP(f.t, f.n);
-    for (const a of FOOT_N) for (const c of FOOT_W) {
+    for (const a of footN(seg)) for (const c of FOOT_W) {
       out.push([f.p[0] + f.n[0] * a + w[0] * c, f.p[1] + f.n[1] * a + w[1] * c, f.p[2] + f.n[2] * a + w[2] * c]);
     }
   }
@@ -59,7 +60,7 @@ export const IN_FRONT = 0.7;
 const screenCache = new Map<string, ScreenPoint[]>();
 
 function footprintOnScreen(seg: Segment, view: number): ScreenPoint[] {
-  const k = `${view}|${seg.kind}|${seg.from}|${seg.to}|${seg.t0}|${seg.n0}`;
+  const k = `${view}|${seg.kind}|${seg.from}|${seg.to}|${seg.t0}|${seg.n0}|${depthOf(seg)}`;
   let pts = screenCache.get(k);
   if (!pts) {
     pts = footprint(seg).map((q) => toScreen(q, view));

@@ -1,6 +1,6 @@
 // Deterministic ball path follower (GAME_PLAN §4.4). Not a physics simulation.
 import { type Continuation, type JoinWorld, findContinuation } from './joins';
-import { type Dir, type Segment, exitOf, lengthOf, pointAt } from './track';
+import { type Dir, type Segment, exitOf, frameAt, lengthOf, pointAt } from './track';
 import { AXES, type Axis, type V3, VIEWS, add, eq, key, scale } from './grid';
 import { blockedAt } from './screen';
 
@@ -20,6 +20,10 @@ export interface BallState {
   prev?: string;
   /** Bumps since the ball was last released; past a few it gives up and waits (never ping-pongs forever). */
   bumps?: number;
+  /** Speed along `dir` in tiles per second (momentum; see `stepBall`). */
+  speed?: number;
+  /** Times gravity has turned the ball around since release; a ball rocking in a dip settles. */
+  turns?: number;
 }
 
 const MAX_BUMPS = 3;
@@ -262,12 +266,73 @@ export function upcoming(ball: BallState, world: JoinWorld): { remaining: number
 
 export type Outcome = 'goal' | 'rest' | 'loop';
 
+/** Momentum (GAME_PLAN §4.4c): gravity along the track, a gentle drive on level ground, lossy bounces. */
+export const PHYS = {
+  /** Gravity's pull along a slope, tiles/s² (softer than free fall: it's rolling, and it should feel calm). */
+  gravity: 9,
+  /** Speed the hook gives the ball, and the speed level ground eases toward. */
+  cruise: 2,
+  /** Speed limit on long drops, so it never races. */
+  maxSpeed: 3.4,
+  /** Fraction of speed kept by a bounce. */
+  restitution: 0.45,
+  /** Below this after a bounce on a slope, the ball settles where it is. */
+  settle: 0.5,
+};
+
+/**
+ * Advance the ball by `dt` seconds with momentum: it speeds up downhill, slows uphill and rolls back when
+ * it runs out of speed, keeps a steady pace on level ground, and loses speed in every bounce. It eases
+ * into the goal bowl and the start socket. Mutates `ball` (including `speed`).
+ */
+export function stepBall(ball: BallState, world: BallWorld, dt: number): BallEvent[] {
+  if (ball.mode !== 'rolling') return [];
+  const seg = segById(world, ball.segId);
+  const len = lengthOf(seg);
+  const ty = frameAt(seg, ball.dir, Math.min(ball.dist, len)).t[1];
+  let v = ball.speed ?? PHYS.cruise;
+  v -= PHYS.gravity * ty * dt;
+  if (Math.abs(ty) < 0.05) v += (PHYS.cruise - v) * (1 - Math.exp(-2 * dt));
+  // Ease into the bowl or back into the socket.
+  const next = upcoming(ball, world);
+  if (next.flag === 'goal' || next.flag === 'start') v = Math.min(v, PHYS.cruise * Math.max(0.25, next.remaining / 0.7));
+  v = Math.min(v, PHYS.maxSpeed);
+  if (v < 0) {
+    // Gravity won: it rolls back the way it came.
+    ball.turns = (ball.turns ?? 0) + 1;
+    ball.dir = (-ball.dir) as Dir;
+    ball.dist = len - ball.dist;
+    v = -v;
+    if (ball.turns > 6 && v < PHYS.settle) {
+      ball.mode = 'resting';
+      ball.speed = 0;
+      return [{ type: 'rest', at: pointAt(seg, ball.dir, ball.dist), pad: true }];
+    }
+  }
+  ball.speed = v;
+  const events = advance(ball, world, v * dt);
+  for (const e of events) {
+    if (e.type !== 'bump') continue;
+    ball.speed = (ball.speed ?? 0) * PHYS.restitution;
+    // Bounced off something on a slope with little speed left: it settles against it.
+    const s2 = segById(world, ball.segId);
+    const slope = Math.abs(frameAt(s2, ball.dir, Math.min(ball.dist, lengthOf(s2))).t[1]);
+    if (slope > 0.3 && ball.speed < PHYS.settle) {
+      ball.mode = 'resting';
+      ball.speed = 0;
+      events.push({ type: 'rest', at: e.at, pad: true });
+    }
+  }
+  return events;
+}
+
 /** Release the ball and run until it reaches the goal, comes to rest, or is judged to loop forever. */
 export function simulate(world: BallWorld, start: BallState): { outcome: Outcome; ball: BallState; events: BallEvent[] } {
-  const ball: BallState = { ...start, mode: 'rolling', bumps: 0, bumped: false };
+  const ball: BallState = { ...start, mode: 'rolling', bumps: 0, bumped: false, turns: 0, speed: start.speed ?? PHYS.cruise };
   const events: BallEvent[] = [];
-  for (let i = 0; i < 4000; i++) {
-    events.push(...advance(ball, world, 0.5));
+  const dt = 1 / 30;
+  for (let i = 0; i < 6000; i++) {
+    events.push(...stepBall(ball, world, dt));
     if (ball.mode === 'won') return { outcome: 'goal', ball, events };
     if (ball.mode === 'resting') return { outcome: 'rest', ball, events };
   }

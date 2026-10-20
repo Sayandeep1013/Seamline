@@ -23,7 +23,12 @@ export interface Segment {
   t0: Axis; n0: Axis;
   t1: Axis; n1: Axis;
   ends: readonly [EndFlag, EndFlag];
+  /** Slab thickness under the riding surface (default 0.6). The Star's blades are thin so they never cover each other's lanes. */
+  depth?: number;
 }
+
+export const DEFAULT_DEPTH = 0.6;
+export const depthOf = (seg: Segment) => seg.depth ?? DEFAULT_DEPTH;
 
 export interface Endpoint {
   p: V3;

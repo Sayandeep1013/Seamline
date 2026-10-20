@@ -1,7 +1,7 @@
 // Procedural meshes for each piece family (GAME_PLAN §8). Everything is swept along the track data.
 import * as THREE from 'three';
 import { AXES, type V3 } from '../core/grid';
-import { type EndFlag, type Segment, frameAt, lengthOf } from '../core/track';
+import { type EndFlag, type Segment, depthOf, frameAt, lengthOf } from '../core/track';
 
 /** Ball radius and beam cross-section (world units). */
 export const BALL_R = 0.28;
@@ -71,7 +71,7 @@ export interface TrackGeometry {
 }
 
 /** Solid slab under the ball path: riding surface at −R along n, depth D, width W. Works for every segment kind. */
-export function trackGeometry(seg: Segment, extra = 0, depth: number | ((u: number) => number) = BEAM_D): TrackGeometry {
+export function trackGeometry(seg: Segment, extra = 0, depth: number | ((u: number) => number) = depthOf(seg)): TrackGeometry {
   const S = samples(seg, extra);
   const hw = BEAM_W / 2 + extra;
   const n0 = -BALL_R + extra;

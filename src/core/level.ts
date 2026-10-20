@@ -54,6 +54,8 @@ function buildSegment(d: SegmentDef, pieceId: string | null): Segment {
   return arc(d.id, pieceId, d.type, d.from, d.t, d.n, ends);
 }
 
+export const STAR_BLADE = 0.25;
+
 /** In-plane axes (u, v) for a star lying across `plane` (the axis it's extruded along). */
 const STAR_PLANE: Record<AxisName, [Axis, Axis]> = { z: ['+x', '+y'], x: ['+z', '+y'], y: ['+x', '+z'] };
 
@@ -73,7 +75,9 @@ function starFaces(p: PieceDef): Segment[] {
     wn: [add(c, scale(U, -1)), u, v],
   };
   const faces = p.faces ?? (p.shape === 'star' ? ['ne', 'es', 'sw', 'wn'] : ['ne', 'es']);
-  return faces.map((f) => arc(`${p.id}.${f}`, p.id, 'concave', all[f][0], all[f][1], all[f][2], ['open', 'open']));
+  // Thin blades (0.25): a face's slab must never reach into a neighbouring face's ball lane, or the ball
+  // would look like it's inside the star.
+  return faces.map((f) => ({ ...arc(`${p.id}.${f}`, p.id, 'concave', all[f][0], all[f][1], all[f][2], ['open', 'open']), depth: STAR_BLADE }));
 }
 
 export function pieceSegments(p: PieceDef): Segment[] {

@@ -130,6 +130,11 @@ For other views, rotate the world point around `y` by −90°·n first.
 - **Falling is a perspective landing (§4.6) for every open end:** the ball drops straight down the screen and lands on the first floor drawn beneath it, at whatever depth. If nothing is there, it falls into the void, fades and drops back onto the start socket.
 - A ball that bounces more than 3 times without being released again stops and waits, so nothing ever ping-pongs forever.
 
+### 4.4c Momentum (v0.3.3)
+- The ball has speed. Gravity pulls along the track at 9 tiles/s² (downhill faster, uphill slower; if it runs out of speed it rolls back). Level ground eases toward the cruise speed of 2 tiles/s, the cap is 3.4, and a bounce keeps 45% of the speed. On a slope, a bounce slower than 0.5 settles the ball where it is; a ball rocking in a dip settles after 6 turnarounds.
+- Consequence: nothing climbs without enough momentum. Levels never rely on climbing; a future "updraft" piece would be the only way up.
+- The game and the solver share `stepBall` (the solver uses a fixed 1/30 s step).
+
 ### 4.5 Player verbs
 | Verb | Input | Applies to | Introduced |
 |---|---|---|---|
@@ -547,3 +552,4 @@ adb install -r seamline-debug.apk       # after downloading the CI artifact
 | 2026-10-20 | v0.3 visual fixes: the ball draws after the seam glow (it covers the line); the goal ripple belongs to the bowl's piece (it follows a slid beam); falls keep their momentum under gravity 22 u/s², and a lost ball fades and drops back onto the socket. | Owner playtest on L1 and L2. |
 | 2026-10-20 | v0.3.1: **in-app update check** (GitHub Releases API, at most every 6 h, a Settings toggle, opens the APK download in the browser). This is the app's only network use. The owner chose not to back up the signing key for now; it lives in GitHub Secrets. | The owner wants anyone installing from Releases to get updates; the Play Store comes later. |
 | 2026-10-20 | v0.3.2: contact is checked continuously (every 0.06 units), so the ball reaches the obstacle before bouncing; the piece it hits wobbles and knocks. | Owner on device: in L2 the ball "won't go after a few steps" (the old check looked a whole segment ahead and turned around early). |
+| 2026-10-20 | v0.3.3: **momentum physics** (§4.4c) shared by the game and the solver. **L5 Hold rebuilt**: the same beam bridges A→P, then (slid to −1) carries the return leg of an upward U-turn to the bowl. No climbing; drop shortcuts ruled out (the solver's solution is unique at par 3). **Star blades are 0.25 thick** (per-segment depth), so no face covers another's lane. The ball is drawn 0.5 toward the camera so its own groove's lip can't hide it. Only end-to-end joins glow, as one fine line. | Owner playtest: L5 "goes up without any support… gravity doesn't work properly"; L3 "phasing through… not solvable". |

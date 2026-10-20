@@ -118,6 +118,7 @@ is in [`research/FEEL_AND_ATMOSPHERE.md`](research/FEEL_AND_ATMOSPHERE.md).
 
 | | |
 |---|---|
+| v0.3.3 | Momentum physics (gravity, capped speed, lossy bounces); Hold rebuilt without climbing; slim-bladed Star; quieter seam glow |
 | v0.3.2 | Continuous contact: the ball reaches the obstacle before bouncing, and the piece it hits wobbles and knocks |
 | v0.3.1 | In-app update check: the level select shows "New version → Download" when a newer release exists |
 | v0.3.0 | What looks solid is solid, perspective landings with real momentum, clearer Star level, glow and ripple fixes, permanent signing key |

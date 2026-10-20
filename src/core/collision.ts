@@ -2,10 +2,10 @@
 // Each segment is approximated by samples along its path: the ball corridor (the path itself)
 // and the slab centre under it. Two things collide when any of those samples come too close.
 import type { V3 } from './grid';
-import { type Segment, frameAt, lengthOf } from './track';
+import { type Segment, depthOf, frameAt, lengthOf } from './track';
 
-/** Mirrors render/geometry.ts: ball radius 0.28, slab depth 0.6 → slab centre 0.58 below the path. */
-const SLAB_CENTRE = 0.58;
+/** Mirrors render/geometry.ts: ball radius 0.28 above the surface, then the slab's depth below it. */
+const BALL_R = 0.28;
 const STEP = 0.25;
 /** Minimum distance between samples of two different solids. */
 export const CLEAR = 0.55;
@@ -40,10 +40,11 @@ export function sampleSegment(seg: Segment): Samples {
   const len = lengthOf(seg);
   const n = Math.max(2, Math.ceil(len / STEP));
   const pts: P[] = [], path: P[] = [];
+  const c = BALL_R + depthOf(seg) / 2;
   for (let i = 0; i <= n; i++) {
     const f = frameAt(seg, 1, (len * i) / n);
     const p = [...f.p] as P;
-    pts.push(p, [p[0] - f.n[0] * SLAB_CENTRE, p[1] - f.n[1] * SLAB_CENTRE, p[2] - f.n[2] * SLAB_CENTRE]);
+    pts.push(p, [p[0] - f.n[0] * c, p[1] - f.n[1] * c, p[2] - f.n[2] * c]);
     path.push(p, p);
   }
   return { owner: seg.pieceId ?? `fixed:${seg.id}`, pts, path, ends: [[...seg.from] as P, [...seg.to] as P], ...bounds(pts) };
