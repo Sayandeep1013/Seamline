@@ -64,10 +64,18 @@ jobs:
           ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ../app.apk
 
-      - name: Show the signing certificate
+      - name: Verify the signing certificate
+        env:
+          SEAMLINE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
-          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-          "$APKSIGNER" verify --print-certs app.apk | grep -E "Signer #1 certificate (DN|SHA-256)"
+          APKSIGNER=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}" -path '*build-tools*' -name apksigner -type f | sort -V | tail -1)
+          echo "apksigner: $APKSIGNER"
+          "$APKSIGNER" verify --print-certs app.apk | tee certs.txt
+          if [ "$HAS_KEY" = "true" ]; then
+            WANT=$(keytool -list -v -storetype pkcs12 -keystore "$SEAMLINE_KEYSTORE" -storepass "$SEAMLINE_KEYSTORE_PASSWORD"               | grep -m1 'SHA256:' | sed 's/.*SHA256: //; s/://g' | tr 'A-F' 'a-f')
+            echo "expected SHA-256: $WANT"
+            grep -qi "SHA-256 digest: $WANT" certs.txt && echo "Signed with the Seamline release key."
+          fi
 
       - name: Name the APK
         run: |
