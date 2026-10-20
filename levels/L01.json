@@ -1,0 +1,21 @@
+{
+  "id": "L01",
+  "name": "First Sight",
+  "palette": "mustard",
+  "views": [0],
+  "startView": 0,
+  "start": { "p": [0, 0, 0], "t": "+x", "n": "+y" },
+  "goal": { "pieceId": "B", "end": "far" },
+  "fixed": [
+    { "id": "A", "type": "straight", "from": [0, 0, 0], "to": [3, 0, 0], "n": "+y", "ends": ["start", "open"] }
+  ],
+  "pieces": [
+    {
+      "id": "B", "type": "straight", "from": [4, 1, 0], "to": [7, 1, 0], "n": "+y",
+      "move": { "kind": "slide", "axis": "z", "stops": [-1, 0, 1, 2], "initial": -1 }
+    }
+  ],
+  "restPads": [],
+  "par": 1,
+  "hint": [{ "piece": "B", "slideTo": 1 }]
+}
