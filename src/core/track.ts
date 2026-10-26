@@ -25,10 +25,15 @@ export interface Segment {
   ends: readonly [EndFlag, EndFlag];
   /** Slab thickness under the riding surface (default 0.6). The Star's blades are thin so they never cover each other's lanes. */
   depth?: number;
+  /** Star blades taper: fine at the tips, swelling to `depth` mid-blade. */
+  taper?: boolean;
 }
 
 export const DEFAULT_DEPTH = 0.6;
 export const depthOf = (seg: Segment) => seg.depth ?? DEFAULT_DEPTH;
+/** Slab thickness at fraction `u` (0..1) along the segment: what is drawn and what the ball collides with. */
+export const depthAlong = (seg: Segment, u: number) =>
+  seg.taper ? 0.1 + (depthOf(seg) - 0.1) * Math.sin(Math.PI * u) : depthOf(seg);
 
 export interface Endpoint {
   p: V3;

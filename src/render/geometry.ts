@@ -1,7 +1,7 @@
 // Procedural meshes for each piece family (GAME_PLAN §8). Everything is swept along the track data.
 import * as THREE from 'three';
-import { AXES, type V3 } from '../core/grid';
-import { type EndFlag, type Segment, depthOf, frameAt, lengthOf } from '../core/track';
+import type { V3 } from '../core/grid';
+import { type EndFlag, type Segment, depthAlong, frameAt, lengthOf } from '../core/track';
 
 /** Ball radius and beam cross-section (world units). */
 export const BALL_R = 0.28;
@@ -71,7 +71,7 @@ export interface TrackGeometry {
 }
 
 /** Solid slab under the ball path: riding surface at −R along n, depth D, width W. Works for every segment kind. */
-export function trackGeometry(seg: Segment, extra = 0, depth: number | ((u: number) => number) = depthOf(seg)): TrackGeometry {
+export function trackGeometry(seg: Segment, extra = 0, depth: number | ((u: number) => number) = (u) => depthAlong(seg, u)): TrackGeometry {
   const S = samples(seg, extra);
   const hw = BEAM_W / 2 + extra;
   const n0 = -BALL_R + extra;
@@ -134,14 +134,15 @@ export function nubGeometry(seg: Segment, view: V3) {
   return g;
 }
 
-/** Small pivot cap marking the axis a rotatable piece turns about. */
-export function pivotGeometry(pivot: V3, axis: 'x' | 'y' | 'z', view: V3) {
-  const a = vec(AXES[`+${axis}`]);
-  const side = a.dot(vec(view)) >= 0 ? 1 : -1;
-  const g = new THREE.CylinderGeometry(0.16, 0.16, 0.08, 24);
-  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), a.clone().multiplyScalar(side)));
-  const c = vec(pivot).addScaledVector(a, side * (BEAM_W / 2 + 0.05));
-  g.translate(c.x, c.y, c.z);
+/**
+ * Small hub marking the centre a rotatable piece turns about. That centre is the middle of the piece's curve,
+ * where the ball passes at radius 1, so the hub sits exactly on it and stays small: from every view it is at
+ * least 0.58 away from the ball's path on screen, so it can never cover the ball (a cap sticking out toward
+ * the camera did, in one view or another).
+ */
+export function pivotGeometry(pivot: V3) {
+  const g = new THREE.SphereGeometry(0.15, 20, 14);
+  g.translate(pivot[0], pivot[1], pivot[2]);
   return g;
 }
 

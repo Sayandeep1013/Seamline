@@ -1,6 +1,6 @@
 // Breadth-first solver over (piece states, view, ball rest position) — GAME_PLAN §9.4.
 // A move is one drag to any stop, one 90° rotation, one view turn, or one release.
-import { type BallState, type BallWorld, simulate } from './ball';
+import { type BallState, type BallWorld, inView, simulate } from './ball';
 import { type LevelDef, type PieceStates, initialStates, padKeys, resolveSegments, startSegment } from './level';
 import { Solidity } from './solidity';
 import { pointAt } from './track';
@@ -64,12 +64,12 @@ export function solve(level: LevelDef, opts: { from?: Omit<Node, 'path'>; maxNod
       if (ballSeg.pieceId === p.id) continue; // the ball is resting on it
       const st = node.states[p.id];
       if (p.slide) for (const s of p.slide.stops) {
-        if (s === st.s || !solid.canMove(p.id, st, { ...st, s }, node.states, ballAt)) continue;
+        if (s === st.s || !solid.canMove(p.id, st, { ...st, s }, node.states, ballAt, node.view)) continue;
         next.push([{ type: 'slide', piece: p.id, to: s }, { ...node, states: { ...node.states, [p.id]: { ...st, s } } }]);
       }
       if (p.rotate) {
         const r = (st.r + 1) % 4;
-        if (solid.canMove(p.id, st, { ...st, r: st.r + 1 }, node.states, ballAt)) {
+        if (solid.canMove(p.id, st, { ...st, r: st.r + 1 }, node.states, ballAt, node.view)) {
           next.push([{ type: 'rotate', piece: p.id, to: r }, { ...node, states: { ...node.states, [p.id]: { ...st, r } } }]);
         }
       }
@@ -78,7 +78,7 @@ export function solve(level: LevelDef, opts: { from?: Omit<Node, 'path'>; maxNod
       const i = level.views.indexOf(node.view);
       for (const j of [i - 1, i + 1]) {
         const to = level.views[(j + level.views.length) % level.views.length];
-        if (to !== node.view) next.push([{ type: 'view', to }, { ...node, view: to }]);
+        if (to !== node.view && inView(node.ball, worldFor(level, node.states, to))) next.push([{ type: 'view', to }, { ...node, view: to }]);
       }
     }
     const run = simulate(world, node.ball);

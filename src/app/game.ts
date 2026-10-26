@@ -1,11 +1,11 @@
 // Level controller: builds the scene from level data, runs input, the ball and feedback.
 import * as THREE from 'three';
-import { type BallEvent, type BallState, type BallWorld, PHYS, stepBall, upcoming } from '../core/ball';
+import { type BallEvent, type BallState, type BallWorld, PHYS, drawnAt, inView, stepBall, upcoming } from '../core/ball';
 import { AXES, VIEWS, type V3, add, eq, manhattan, scale, sub } from '../core/grid';
 import { findContinuation } from '../core/joins';
 import { Solidity } from '../core/solidity';
 import {
-  STAR_BLADE, type LevelDef, type PieceDef, type PieceState, type PieceStates, initialStates, padKeys, pieceSegments, placementOf,
+  type LevelDef, type PieceDef, type PieceState, type PieceStates, initialStates, padKeys, pieceSegments, placementOf,
   resolveSegments, slideVector, startSegment,
 } from '../core/level';
 import { type Move, solve } from '../core/solver';
@@ -28,11 +28,7 @@ const DRAG_SLOP = 10;        // px before a tap becomes a drag
 const SWIPE_MIN = 60;        // px for a view turn
 const BALL_TAP_PX = 48;      // tap radius around the ball, in CSS px
 const HINT_IDLE = 25;        // seconds before the hint button appears
-const GRAVITY = 22;
-/** How far toward the camera the ball is drawn, in world units (half a track width). */
-const BALL_LIFT = 0.5;          // world units per second², tuned so short drops read as weighty but quick
-/** Star blades: fine at the tips, swelling a little mid-blade, never thicker than the core's 0.25. */
-const STAR_DEPTH = (u: number) => 0.1 + (STAR_BLADE - 0.1) * Math.sin(Math.PI * u);
+const GRAVITY = 22;          // world units per second², tuned so short drops read as weighty but quick
 
 const vec = (a: V3) => new THREE.Vector3(a[0], a[1], a[2]);
 
@@ -117,10 +113,9 @@ export class Game {
   private ownerMats = new Map<string, THREE.ShaderMaterial[]>();
   private shift = new Map<string, { x: number; target: number }>();
   private tone!: THREE.ShaderMaterial;
-  /** Which side of a perceptual crossing is nearer the camera, for drawing the ball at that depth. */
-  private crossK = 0;
+  /** A fall in progress; `front` is how far toward the camera it's drawn while airborne. */
   private falling: {
-    pos: THREE.Vector3; vel: THREE.Vector3; to: THREE.Vector3; t: number; result: 'roll' | 'settle' | 'lost' | 'drop-in';
+    pos: THREE.Vector3; vel: THREE.Vector3; to: THREE.Vector3; t: number; result: 'roll' | 'settle' | 'lost' | 'drop-in'; front: number;
   } | null = null;
   private pointers = new Map<number, THREE.Vector2>();
   private lastSeg = '';
@@ -177,11 +172,10 @@ export class Game {
       inner.position.copy(pv3).negate();
       outer.add(pivot);
       pivot.add(inner);
-      const star = def.shape === 'star' || def.shape === 'halfstar';
       const tone = this.ownerTone(def.id);
-      for (const seg of segs) inner.add(this.segmentMeshes(seg, tone, star ? STAR_DEPTH : undefined));
+      for (const seg of segs) inner.add(this.segmentMeshes(seg, tone));
       if (def.slide && def.shape === 'beam') inner.add(new THREE.Mesh(this.keep(nubGeometry(segs[0], v0)), tone));
-      if (def.rotate) inner.add(new THREE.Mesh(this.keep(pivotGeometry(def.rotate.pivot as V3, def.rotate.axis, v0)), tone));
+      if (def.rotate) inner.add(new THREE.Mesh(this.keep(pivotGeometry(def.rotate.pivot as V3)), tone));
       // Generous invisible hit box around the whole piece, in the inner group's frame.
       const box = new THREE.Box3();
       for (const s of segs) for (let i = 0; i <= 6; i++) {
@@ -245,9 +239,9 @@ export class Game {
   }
 
   /** Body + end caps (+ hook / bowl) for one segment in its authored position. */
-  private segmentMeshes(seg: Segment, tone: THREE.ShaderMaterial, depth?: number | ((u: number) => number)) {
+  private segmentMeshes(seg: Segment, tone: THREE.ShaderMaterial) {
     const g = new THREE.Group();
-    const geo = trackGeometry(seg, 0, depth);
+    const geo = trackGeometry(seg);
     this.disposables.push(geo.body, ...geo.caps);
     const caps: [THREE.Mesh, THREE.Mesh] = [new THREE.Mesh(geo.caps[0], tone), new THREE.Mesh(geo.caps[1], tone)];
     const body = new THREE.Mesh(geo.body, tone);
@@ -540,7 +534,7 @@ export class Game {
       d.dragging = true;
       pv.moving = true;
       // Solid pieces: the drag can only reach as far as the first thing in the way.
-      this.dragRange = this.solid.slideRange(pv.def.id, pv.committed, this.states(), this.ballObstacle());
+      this.dragRange = this.solid.slideRange(pv.def.id, pv.committed, this.states(), this.ballObstacle(), this.view);
       this.clearGhostIfFor(pv.def.id);
       hapticSelectionStart();
       this.refreshJoins();
@@ -665,7 +659,7 @@ export class Game {
   }
 
   private rotate(pv: PieceView, dirn: 1 | -1 = 1, recordIt = true) {
-    const blocked = !this.solid.canMove(pv.def.id, pv.committed, { ...pv.committed, r: pv.committed.r + dirn }, this.states(), this.ballObstacle());
+    const blocked = !this.solid.canMove(pv.def.id, pv.committed, { ...pv.committed, r: pv.committed.r + dirn }, this.states(), this.ballObstacle(), this.view);
     if (this.ballOn(pv.def.id) || blocked || this.falling) { pv.shake = 1; sound.bump(); haptic('tick'); return false; }
     const from = pv.committed.r;
     const to = (from + dirn + 4) % 4;
@@ -685,6 +679,8 @@ export class Game {
     const views = this.level.views;
     if (views.length < 2 || this.turning || this.peeking || this.overlayAfter > 0 || this.falling || this.won) return;
     const to = views[(views.indexOf(this.view) + step + views.length) % views.length];
+    // The world won't turn to a view that would hide the ball behind something: it nudges and settles back.
+    if (!inView(this.state, { ...this.world(), view: to })) { this.nudgeView(step); return; }
     this.toView(to, recordIt);
   }
 
@@ -711,17 +707,31 @@ export class Game {
     });
   }
 
+  /** A refused turn: the world starts to turn, meets resistance and settles back. */
+  private nudgeView(step: 1 | -1) {
+    if (this.turning) return;
+    this.turning = true;
+    sound.bump();
+    haptic('tick');
+    const base = this.stage.angle;
+    tween(0, 1, reducedMotion() ? 0.15 : 0.4, (x) => this.stage.setView(base + step * 0.07 * Math.sin(Math.PI * x)), {
+      ease: ease.outCubic,
+      tag: 'view',
+      done: () => { this.stage.setView(base); this.turning = false; },
+    });
+  }
+
   undo() {
     const a = this.undoStack.pop();
     if (!a || this.won) return;
     if (a.type === 'view') {
-      if (this.turning) { this.undoStack.push(a); return; }
+      if (this.turning || !inView(this.state, { ...this.world(), view: a.from })) { this.undoStack.push(a); return; }
       this.toView(a.from, false);
     } else {
       const pv = this.pieces.get(a.id)!;
       if (this.ballOn(a.id)) { this.undoStack.push(a); pv.shake = 1; return; }
       if (a.type === 'slide') {
-        if (!this.solid.canMove(a.id, pv.committed, { ...pv.committed, s: a.from }, this.states(), this.ballObstacle())) {
+        if (!this.solid.canMove(a.id, pv.committed, { ...pv.committed, s: a.from }, this.states(), this.ballObstacle(), this.view)) {
           this.undoStack.push(a); pv.shake = 1; sound.bump(); return;
         }
         pv.committed.s = a.from;
@@ -867,10 +877,7 @@ export class Game {
     if (this.falling) return;
     const next = this.state.mode === 'rolling' ? upcoming(this.state, world) : null;
     const approaching = Boolean(next && next.k !== null && next.k !== 0 && next.remaining < 0.8);
-    // Draw the ball at the depth of whichever side of a perceptual crossing is nearer the camera.
-    // Sliding it along the view line doesn't move it on screen; it only changes what can hide it.
-    const depthCopy = approaching ? Math.max(0, -next!.k!) : this.overlayAfter > 0 ? Math.max(0, this.crossK) : 0;
-    this.placeBall(false, depthCopy);
+    this.placeBall(false);
     // Slow-mo for the very first perceptual crossing (GAME_PLAN L1 feedback).
     this.targetTimeScale = !this.firstCrossDone && !reducedMotion() && (approaching || this.overlayAfter > 0.3) ? 0.4 : 1;
     sound.roll(this.state.mode === 'rolling' ? this.speed / CRUISE : 0);
@@ -895,7 +902,9 @@ export class Game {
       this.tmpAxis.normalize();
       this.ballMesh.quaternion.premultiply(this.tmpQ.setFromAxisAngle(this.tmpAxis, Math.hypot(step.x, step.z) / BALL_R));
     }
+    // Drawn in front of everything while airborne (moving along the view line is invisible on screen).
     this.ball.position.copy(f.pos);
+    if (!landed) this.ball.position.addScaledVector(vec(VIEWS[this.view]), f.front);
     // The contact shadow waits on the landing surface, sharpening as the ball comes down.
     const sh = this.ballShadow;
     sh.visible = f.result !== 'lost';
@@ -914,7 +923,7 @@ export class Game {
       this.ball.scale.setScalar(1);
       this.placeBall(true);
       const rest = this.lastBallPos.clone();
-      this.falling = { pos: rest.clone().add(new THREE.Vector3(0, 1.4, 0)), vel: new THREE.Vector3(), to: rest, t: 0, result: 'drop-in' };
+      this.falling = { pos: rest.clone().add(new THREE.Vector3(0, 1.4, 0)), vel: new THREE.Vector3(), to: rest, t: 0, result: 'drop-in', front: 0 };
       sound.rest();
       return;
     }
@@ -941,7 +950,7 @@ export class Game {
   private onBallEvent(ev: BallEvent) {
     switch (ev.type) {
       case 'cross':
-        if (ev.k !== 0) { this.overlayAfter = 0.9; this.crossK = ev.k; this.crossedOnce = true; }
+        if (ev.k !== 0) { this.overlayAfter = 0.9; this.crossedOnce = true; }
         break;
       case 'bump': {
         this.speed = 0;
@@ -969,7 +978,7 @@ export class Game {
           vel.x = (to.x - pos.x) / t;
           vel.z = (to.z - pos.z) / t;
         }
-        this.falling = { pos, vel, to, t: 0, result: ev.result };
+        this.falling = { pos, vel, to, t: 0, result: ev.result, front: ev.front };
         this.speed = ev.result === 'roll' ? speed * 0.6 : 0;
         this.overlayAfter = 0;
         sound.fall();
@@ -999,7 +1008,22 @@ export class Game {
     this.timers.push(window.setTimeout(() => this.cb.onWin(this.moves, this.level.par), 1100));
   }
 
-  private placeBall(snap = false, depthCopy = 0) {
+  /**
+   * The world the ball is drawn against: a piece being slid counts as sitting at its nearest stop, so a
+   * ball waiting on a seam is drawn on the arriving piece rather than flickering behind it.
+   */
+  private drawWorld(): BallWorld {
+    const states = this.states();
+    const moving = new Set<string>();
+    for (const [id, pv] of this.pieces) {
+      if (!pv.moving) continue;
+      if (pv.slideAxis && Math.round(pv.rot.x) === pv.rot.x) states[id] = { ...states[id], s: Math.round(pv.slide.x) };
+      else moving.add(id);
+    }
+    return { ...this.world(), segments: resolveSegments(this.level, states), moving };
+  }
+
+  private placeBall(snap = false) {
     const f = frameAt(this.segment(this.world(), this.state.segId), this.state.dir, this.state.dist);
     const pos = vec(f.p), n = vec(f.n);
     const step = pos.clone().sub(this.lastBallPos);
@@ -1015,10 +1039,9 @@ export class Game {
       }
     }
     this.lastBallPos.copy(pos);
-    // Drawn slightly toward the camera (invisible on screen): the front lip of its own track or groove can
-    // never hide it, while anything genuinely in front still does.
-    const toCam = vec(VIEWS[this.view]);
-    const shown = pos.clone().addScaledVector(toCam, depthCopy).addScaledVector(toCam.normalize(), BALL_LIFT);
+    // Drawn at the nearer side of a seam it's at, and slightly toward the camera so the lip of its own groove
+    // can't hide it (sliding along the view line is invisible on screen; it only changes what can hide it).
+    const shown = vec(drawnAt(this.state, this.drawWorld()));
     this.ball.position.copy(shown);
     this.ballShadow.position.copy(shown).addScaledVector(n, -BALL_R + 0.004);
     this.ballShadow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);

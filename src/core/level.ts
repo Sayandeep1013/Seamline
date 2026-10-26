@@ -60,8 +60,8 @@ export const STAR_BLADE = 0.25;
 const STAR_PLANE: Record<AxisName, [Axis, Axis]> = { z: ['+x', '+y'], x: ['+z', '+y'], y: ['+x', '+z'] };
 
 /**
- * The Star: four concave faces around its centre; tips at ±u, ±v (GAME_PLAN §4.7).
- * Face NE runs from tip N (moving −v, riding on +u) round to tip E.
+ * The Star: two opposite concave blades crossing at its centre, giving four points at ±u, ±v (GAME_PLAN §4.7).
+ * Blade NE runs from tip N (moving −v, riding on +u) round to tip E; blade SW from S round to W.
  */
 function starFaces(p: PieceDef): Segment[] {
   const [u, v] = STAR_PLANE[p.plane ?? 'z'];
@@ -74,10 +74,12 @@ function starFaces(p: PieceDef): Segment[] {
     sw: [add(c, scale(Vv, -1)), v, neg(u)],
     wn: [add(c, scale(U, -1)), u, v],
   };
-  const faces = p.faces ?? (p.shape === 'star' ? ['ne', 'es', 'sw', 'wn'] : ['ne', 'es']);
+  // Two opposite blades, never adjacent ones: adjacent faces share a tip, so riding one would carry the ball
+  // straight through the other. Opposite blades cross at the hub but each keeps its lane clear (GAME_PLAN §4.7).
+  const faces = p.faces ?? (p.shape === 'star' ? ['ne', 'sw'] : ['ne']);
   // Thin blades (0.25): a face's slab must never reach into a neighbouring face's ball lane, or the ball
   // would look like it's inside the star.
-  return faces.map((f) => ({ ...arc(`${p.id}.${f}`, p.id, 'concave', all[f][0], all[f][1], all[f][2], ['open', 'open']), depth: STAR_BLADE }));
+  return faces.map((f) => ({ ...arc(`${p.id}.${f}`, p.id, 'concave', all[f][0], all[f][1], all[f][2], ['open', 'open']), depth: STAR_BLADE, taper: true }));
 }
 
 export function pieceSegments(p: PieceDef): Segment[] {

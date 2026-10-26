@@ -1,8 +1,8 @@
-// Deterministic ball path follower (GAME_PLAN §4.4). Not a physics simulation.
-import { type Continuation, type JoinWorld, findContinuation } from './joins';
+// Deterministic ball path follower with momentum and contact (GAME_PLAN §4.4).
+import { type Continuation, type JoinWorld, capsShown, findContinuation } from './joins';
+import { type CapsShown, hiding, overlapping, shapeOf, toScreen } from './contact';
 import { type Dir, type Segment, exitOf, frameAt, lengthOf, pointAt } from './track';
-import { AXES, type Axis, type V3, VIEWS, add, eq, key, scale } from './grid';
-import { blockedAt } from './screen';
+import { AXES, type Axis, type V3, VIEWS, add, key, scale } from './grid';
 
 export type BallMode = 'resting' | 'rolling' | 'won';
 
@@ -24,6 +24,9 @@ export interface BallState {
   speed?: number;
   /** Times gravity has turned the ball around since release; a ball rocking in a dip settles. */
   turns?: number;
+  /** Last perceptual crossing's k, and how much further the ball is drawn at the nearer side's depth. */
+  crossK?: number;
+  crossLeft?: number;
 }
 
 const MAX_BUMPS = 3;
@@ -37,9 +40,10 @@ export type BallEvent =
   /**
    * Rolled off an open end. It falls straight down the screen and lands at `to`, the first surface that
    * appears beneath it (rolling on, or settling), or is lost and returns to the start. `k` is the depth
-   * jump of that perspective landing: `from + k·v` is the same screen point at the landing's depth.
+   * jump of that perspective landing: `from + k·v` is the same screen point at the landing's depth. While
+   * in the air it is drawn a further `front`·v toward the camera, in front of everything.
    */
-  | { type: 'fall'; from: V3; to: V3; k: number; result: 'roll' | 'settle' | 'lost' };
+  | { type: 'fall'; from: V3; to: V3; k: number; front: number; result: 'roll' | 'settle' | 'lost' };
 
 export interface BallWorld extends JoinWorld {
   pads: ReadonlySet<string>;
@@ -48,6 +52,25 @@ export interface BallWorld extends JoinWorld {
 }
 
 const EPS = 1e-9;
+
+/** Around a perceptual crossing the ball is drawn at the nearer side's depth, this far either side. */
+export const CROSS_DRAW = 0.8;
+/** The ball is drawn this far toward the camera (invisible on screen) so its own groove's lip never hides it. */
+export const BALL_LIFT = 0.5;
+
+/**
+ * Where the ball is drawn: its true position, slid along the view line (which doesn't move it on screen) to
+ * the nearer side of a perceptual crossing it is approaching or has just made, plus BALL_LIFT.
+ */
+export function drawnAt(ball: BallState, world: JoinWorld): V3 {
+  const seg = segById(world, ball.segId);
+  const p = pointAt(seg, ball.dir, Math.min(ball.dist, lengthOf(seg)));
+  // A ball waiting on a seam (a cradle at a join) is drawn at the nearer side too.
+  const len = lengthOf(seg);
+  const nextNode = seg.kind === 'straight' ? Math.min(Math.floor(ball.dist + EPS) + 1, len) : len;
+  const k = ball.mode === 'won' ? 0 : drawnK(nextCrossing(world, seg, ball.dir, nextNode), nextNode - ball.dist, ball.crossK, ball.crossLeft ?? 0);
+  return lifted(p, k, world.view);
+}
 
 function segById(world: JoinWorld, id: string): Segment {
   const seg = world.segments.find((s) => s.id === id);
@@ -60,6 +83,7 @@ function enter(ball: BallState, c: Continuation, from: V3, events: BallEvent[]) 
   ball.segId = c.seg.id;
   ball.dir = c.dir;
   ball.dist = c.dist;
+  if (c.k !== 0) { ball.crossK = c.k; ball.crossLeft = CROSS_DRAW; }
   events.push({ type: 'cross', k: c.k, from, to: pointAt(c.seg, c.dir, c.dist), segId: c.seg.id });
 }
 
@@ -130,8 +154,7 @@ export function advance(ball: BallState, world: BallWorld, distance: number): Ba
 
     if (ball.dist < len - EPS) {
       // Interior node: a movable piece may intercept through-track.
-      const t = ball.dir === 1 ? seg.t0 : exitOf(seg, -1).t;
-      const c = findContinuation(world, { p: here, t, n: seg.n0 }, seg, true);
+      const c = nextCrossing(world, seg, ball.dir, ball.dist);
       if (c) enter(ball, c, here, events);
       continue;
     }
@@ -149,7 +172,8 @@ export function advance(ball: BallState, world: BallWorld, distance: number): Ba
       events.push({ type: 'rest', at: here, pad: false });
       break;
     }
-    const c = exit.flag === 'open' ? findContinuation(world, exit, seg) : null;
+    // Joined onward (or caught by a piece, even at a capped end).
+    const c = nextCrossing(world, seg, ball.dir, len);
     if (c) {
       enter(ball, c, here, events);
       continue;
@@ -174,86 +198,149 @@ export function advance(ball: BallState, world: BallWorld, distance: number): Ba
 }
 
 /**
- * Rolling from the ball's position to distance `to` (no further than `nextNode`), where does it first
- * touch a solid drawn in front of its path? Returns that distance, or null if the way is clear.
- * The track it's on, its physical neighbours, whatever it joins at either end (in this view), what it's
- * about to enter and what it just came from are exempt: seams are exactly where those overlap on screen.
+ * Rolling from the ball's position to distance `to` (no further than `nextNode`), where does it first touch
+ * something? Tested against the exact drawn triangles of every solid, with no exemptions (GAME_PLAN §4.4b):
+ * its sphere may never sink into a solid, and no part of it as drawn may be hidden behind one. The only
+ * thing allowed to hide it is the track it rides and track physically joined to that (the ball going round
+ * the back of its own pillar is real; slipping behind something else is not).
  */
 function firstContact(world: BallWorld, seg: Segment, ball: BallState, nextNode: number, to: number): { dist: number; hit: Segment } | null {
-  const len = lengthOf(seg);
-  let target: Continuation | null = null;
-  if (nextNode >= len - EPS) {
-    const exit = exitOf(seg, ball.dir);
-    if (exit.flag === 'open') target = findContinuation(world, exit, seg);
-  } else {
-    const t = ball.dir === 1 ? seg.t0 : exitOf(seg, -1).t;
-    target = findContinuation(world, { p: nodePoint(seg, ball.dir, nextNode), t, n: seg.n0 }, seg, true);
-  }
-  const exempt = new Set<string>();
-  const exemptPieces = new Set<string>();
-  const add = (o: Segment | undefined) => { if (o) { exempt.add(o.id); if (o.pieceId) exemptPieces.add(o.pieceId); } };
-  add(seg);
-  add(target?.seg);
-  add(world.segments.find((o) => o.id === ball.prev));
+  const target = nextCrossing(world, seg, ball.dir, nextNode);
+  const caps = capsOf(world);
+  const solids = world.segments.filter((o) => !(o.pieceId && world.moving.has(o.pieceId)));
+  const physical = new Set([seg.id]);
   for (const d of [1, -1] as const) {
     const e = exitOf(seg, d);
-    if (e.flag === 'open') add(findContinuation(world, e, seg)?.seg);
+    const c = e.flag === 'open' ? findContinuation(world, e, seg) : null;
+    if (c && c.k === 0) physical.add(c.seg.id);
   }
-  const touches = (o: Segment) => [o.from, o.to].some((a) => eq(a, seg.from) || eq(a, seg.to));
-  const solids = world.segments.filter((o) =>
-    !exempt.has(o.id) && !touches(o) &&
-    !(o.pieceId && (world.moving.has(o.pieceId) || exemptPieces.has(o.pieceId))));
-  if (!solids.length) return null;
-  // Fine steps so the ball visibly reaches the obstacle before bouncing.
+  const screens = solids.filter((o) => !physical.has(o.id));
   const from = ball.dist;
-  const n = Math.max(1, Math.ceil((to - from) / 0.06));
+  const n = Math.max(1, Math.ceil((to - from) / 0.05));
   for (let i = 0; i <= n; i++) {
     const d = from + ((to - from) * i) / n;
-    const hit = blockedAt(pointAt(seg, ball.dir, d), solids, world.view);
+    const p = pointAt(seg, ball.dir, d);
+    const k = drawnK(target, nextNode - d, ball.crossK, (ball.crossLeft ?? 0) - (d - from));
+    const hit = overlapping(p, solids, caps) ?? hiding(lifted(p, k, world.view), screens, world.view, caps);
     if (hit) return { dist: Math.max(from, d - (i === 0 ? 0 : (to - from) / n)), hit };
   }
   return null;
 }
 
+/** Where the ball goes at the node `nextNode` along `seg` (a piece may catch it anywhere, even at a capped end). */
+function nextCrossing(world: JoinWorld, seg: Segment, dir: Dir, nextNode: number): Continuation | null {
+  const len = lengthOf(seg);
+  if (nextNode < len - EPS) {
+    const t = dir === 1 ? seg.t0 : exitOf(seg, -1).t;
+    return findContinuation(world, { p: nodePoint(seg, dir, nextNode), t, n: seg.n0 }, seg, true);
+  }
+  const exit = exitOf(seg, dir);
+  if (exit.flag === 'open') return findContinuation(world, exit, seg);
+  if (exit.flag === 'cap') return findContinuation(world, exit, seg, true);
+  return null;
+}
+
+/** Depth shift (in multiples of v) the ball is drawn at: the nearer side of a crossing it is near. */
+function drawnK(next: Continuation | null, toNode: number, crossK: number | undefined, crossLeft: number): number {
+  if (next && next.k !== 0 && toNode < CROSS_DRAW) return Math.max(0, -next.k);
+  if (crossLeft > 0) return Math.max(0, crossK ?? 0);
+  return 0;
+}
+
+function lifted(p: V3, k: number, view: number): V3 {
+  const v = VIEWS[view], l = Math.hypot(v[0], v[1], v[2]);
+  return [p[0] + v[0] * (k + BALL_LIFT / l), p[1] + v[1] * (k + BALL_LIFT / l), p[2] + v[2] * (k + BALL_LIFT / l)];
+}
+
+const capsCache = new WeakMap<object, CapsShown>();
+/** End-face visibility for this world (cached per world object). */
+function capsOf(world: JoinWorld): CapsShown {
+  let c = capsCache.get(world);
+  if (!c) { c = capsShown(world); capsCache.set(world, c); }
+  return c;
+}
+
+/** How far in front of everything a falling ball is drawn (multiples of v): nothing can hide it mid-air. */
+function frontK(world: JoinWorld, p: V3): number {
+  const v = VIEWS[world.view], l = Math.hypot(v[0], v[1], v[2]);
+  let max = -Infinity;
+  for (const s of world.segments) {
+    const sh = shapeOf(s);
+    for (const x of [sh.min[0], sh.max[0]]) for (const y of [sh.min[1], sh.max[1]]) for (const z of [sh.min[2], sh.max[2]]) {
+      max = Math.max(max, (x * v[0] + y * v[1] + z * v[2]) / l);
+    }
+  }
+  const here = (p[0] * v[0] + p[1] * v[1] + p[2] * v[2]) / l;
+  return Math.max(0, (max - here + 1) / l);
+}
+
 /**
- * Falling (GAME_PLAN §4.6, perspective landing): the ball drops straight down the *screen*. Leaving an end
- * horizontally it carries one cell forward first; leaving downward it drops straight. It lands on the first
- * floor that appears beneath it on screen, at whatever depth (q = col − d·ŷ + k·v, smallest d > 0, ties
- * nearest the camera). On a floor running the same way it keeps rolling; otherwise it settles and waits.
- * With nothing beneath it on screen, it's lost and returns to the start socket.
+ * Falling (GAME_PLAN §4.6, perspective landing): the ball drops straight down the *screen*, drawn in front
+ * of everything so nothing can hide it. Leaving an end horizontally it carries one cell forward first;
+ * leaving downward it drops straight. It lands on the first floor drawn beneath it on screen, at whatever
+ * depth, anywhere along that floor (ties nearest the camera), provided it would be in plain view sitting
+ * there. On a floor running the same way it keeps rolling; otherwise it settles and waits. With nothing
+ * beneath it on screen, it's lost and returns to the start socket.
  */
 function fall(ball: BallState, world: BallWorld, t: Axis, here: V3, events: BallEvent[]) {
   const col: V3 = t === '-y' ? here : add(here, AXES[t]);
-  const v = VIEWS[world.view];
-  let best: { seg: Segment; d: number; q: V3; k: number; drop: number } | null = null;
-  for (const s of world.segments) {
-    if (s.kind !== 'straight' || s.n0 !== '+y' || s.t0[1] === 'y') continue;
-    if (s.pieceId && world.moving.has(s.pieceId)) continue;
-    const len = lengthOf(s);
-    for (let d = 0; d <= len; d++) {
-      const q = add(s.from, scale(AXES[s.t0], d));
-      const k = (q[0] - col[0]) / v[0];
-      if (!Number.isInteger(k) || q[2] - col[2] !== k * v[2]) continue;
-      const drop = col[1] + k * v[1] - q[1];
-      if (drop <= 0) continue;
-      if (!best || drop < best.drop || (drop === best.drop && k > best.k)) best = { seg: s, d, q, k: k + 0, drop };
-    }
+  const v = VIEWS[world.view], l2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+  const [cx, cy] = toScreen(col, world.view);
+  const caps = capsOf(world);
+  const front = frontK(world, here);
+  let best: { seg: Segment; s: number; q: V3; sy: number; depth: number } | null = null;
+  for (const seg of world.segments) {
+    if (seg.kind !== 'straight' || seg.n0 !== '+y' || seg.t0[1] === 'y') continue;
+    if (seg.pieceId && world.moving.has(seg.pieceId)) continue;
+    const len = lengthOf(seg);
+    const [ax] = toScreen(seg.from, world.view), [bx] = toScreen(seg.to, world.view);
+    if (Math.abs(bx - ax) < 1e-9) continue;
+    const s = ((cx - ax) / (bx - ax)) * len;
+    if (s < -EPS || s > len + EPS) continue;
+    const q = pointAt(seg, 1, Math.min(len, Math.max(0, s)));
+    const [, sy, depth] = toScreen(q, world.view);
+    if (sy >= cy - EPS) continue;
+    if (best && (sy < best.sy - EPS || (Math.abs(sy - best.sy) < EPS && depth <= best.depth))) continue;
+    // It must be in plain view sitting there, and not inside anything.
+    const others = world.segments.filter((o) => o.id !== seg.id);
+    if (overlapping(q, world.segments, caps) || hiding(lifted(q, 0, world.view), others, world.view, caps)) continue;
+    best = { seg, s: Math.min(len, Math.max(0, s)), q, sy, depth };
   }
   if (!best) {
-    events.push({ type: 'fall', from: here, to: add(col, [0, -10, 0]), k: 0, result: 'lost' });
+    events.push({ type: 'fall', from: here, to: add(col, [0, -10, 0]), k: front, front: 0, result: 'lost' });
     Object.assign(ball, { segId: world.startSeg, dir: 1, dist: 0, mode: 'resting', leaving: undefined, bumped: false });
     return;
   }
-  const { seg, d, q, k } = best;
+  const { seg, s, q } = best;
   const len = lengthOf(seg);
+  // Shift that puts the exit point at the landing's depth (moving along v doesn't move it on screen).
+  const k = ((q[0] - here[0]) * v[0] + (q[1] - here[1]) * v[1] + (q[2] - here[2]) * v[2]) / l2;
+  const fr = Math.max(0, front - k);
   if (t !== '-y' && seg.t0[1] === t[1]) {
     const dir: Dir = seg.t0 === t ? 1 : -1;
-    Object.assign(ball, { segId: seg.id, dir, dist: dir === 1 ? d : len - d, leaving: undefined, bumped: false });
-    events.push({ type: 'fall', from: here, to: q, k, result: 'roll' });
+    Object.assign(ball, { segId: seg.id, dir, dist: dir === 1 ? s : len - s, leaving: undefined, bumped: false, crossLeft: 0 });
+    events.push({ type: 'fall', from: here, to: q, k, front: fr, result: 'roll' });
     return;
   }
-  Object.assign(ball, { segId: seg.id, dir: 1, dist: d, mode: 'resting', leaving: key(q), bumped: false });
-  events.push({ type: 'fall', from: here, to: q, k, result: 'settle' });
+  const whole = Math.abs(s - Math.round(s)) < 1e-6;
+  Object.assign(ball, { segId: seg.id, dir: 1, dist: whole ? Math.round(s) : s, mode: 'resting', leaving: whole ? key(pointAt(seg, 1, Math.round(s))) : undefined, bumped: false, crossLeft: 0 });
+  events.push({ type: 'fall', from: here, to: q, k, front: fr, result: 'settle' });
+}
+
+/**
+ * Is the ball in plain view in this world (nothing but its own track hiding any part of it)? Turning the
+ * world to a view that would hide it is refused, like any other move that runs into something.
+ */
+export function inView(ball: BallState, world: JoinWorld): boolean {
+  const seg = segById(world, ball.segId);
+  const mine = new Set([seg.id]);
+  for (const d of [1, -1] as const) {
+    const e = exitOf(seg, d);
+    const c = e.flag === 'open' ? findContinuation(world, e, seg) : null;
+    if (c && c.k === 0) mine.add(c.seg.id);
+  }
+  const others = world.segments.filter((o) => !mine.has(o.id) && !(o.pieceId && world.moving.has(o.pieceId)));
+  return hiding(drawnAt(ball, world), others, world.view, capsOf(world)) === null;
 }
 
 /** What happens at the end the ball is heading for, without moving it. */
@@ -310,6 +397,7 @@ export function stepBall(ball: BallState, world: BallWorld, dt: number): BallEve
     }
   }
   ball.speed = v;
+  if (ball.crossLeft) ball.crossLeft = Math.max(0, ball.crossLeft - v * dt);
   const events = advance(ball, world, v * dt);
   for (const e of events) {
     if (e.type !== 'bump') continue;

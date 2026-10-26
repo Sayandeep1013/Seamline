@@ -1,8 +1,8 @@
 # SEAMLINE — Game Plan & Handoff Document
 
 > **Working title:** *Seamline* (a ball flows "seamlessly" through joins that only exist from where you're looking).
-> **Status:** v0.3.0. What looks solid is solid, falls are perspective landings, and every build is signed with the permanent key. Chapter 1 has 7 solver-verified levels, playable in the browser and as a portrait Android app built by GitHub Actions. This document is the single source of truth.
-> **Last updated:** 2026-10-20
+> **Status:** v0.4.0. Nothing passes through anything: the ball collides with the exact drawn geometry and is never hidden, checked frame by frame in every reachable state of every level. Chapter 1 has 7 solver-verified levels, playable in the browser and as a portrait Android app built by GitHub Actions. Level design follows `docs/LEVEL_DESIGN.md`. This document is the single source of truth.
+> **Last updated:** 2026-10-26
 > **Purpose of this file:** Paste this whole document into any new AI chat (or hand it to a developer) and they'll have everything needed to continue: concept, rules, math, levels, tech stack, assets, milestones, and open decisions.
 
 ---
@@ -125,9 +125,15 @@ For other views, rotate the world point around `y` by −90°·n first.
 - **Rest pads** (cradles; from level 6): the ball stops and waits. Tap the ball to continue.
 - **Goal:** a **chime bowl**. When the ball reaches it, the level is complete.
 
-### 4.4b What looks solid is solid (v0.3)
-- The ball may never roll *behind* a solid that is drawn in front of it. If any track or piece at least 0.7 units nearer the camera covers the ball's path on screen, the ball bumps there and rolls back. Exempt: the track it's on, its physical neighbours, whatever it joins at either end in this view, and what it just came from (seams are where these overlap on screen). Code: `src/core/screen.ts`.
-- **Falling is a perspective landing (§4.6) for every open end:** the ball drops straight down the screen and lands on the first floor drawn beneath it, at whatever depth. If nothing is there, it falls into the void, fades and drops back onto the start socket.
+### 4.4b What looks solid is solid (v0.4)
+- Two strict rules, tested against the **exact triangles that are drawn** (`src/core/contact.ts`), with no exemptions for whole pieces:
+  1. **Solid:** the ball's sphere never sinks into any slab (it may rest on a surface, no deeper).
+  2. **Seen:** no part of the ball as drawn is hidden by anything, except its own track and track physically joined to it (going round the back of its own pillar is real). Knobs, hubs and handles count.
+- Rolling, the ball stops where either rule would break and bounces back. Near a perceptual crossing (either side, 0.8 units) and while waiting on a seam, it is drawn at the nearer side's depth; sliding along the view line doesn't move it on screen.
+- A piece may catch the ball at any node of a straight, including a capped end.
+- Pieces may not be slid or turned across the ball on screen, and the world won't turn to a view that would hide the ball (it nudges and settles back).
+- **Falling is a perspective landing (§4.6) for every open end:** the ball drops straight down the screen, drawn in front of everything, and lands on the first floor drawn beneath it, at whatever depth and anywhere along that floor, as long as it would sit there in plain view. If nothing is there, it falls into the void, fades and drops back onto the start socket.
+- The audit (`tests/audit.ts`) plays every release from every reachable state at 60 fps, falls included, and fails on any overlap or hidden frame.
 - A ball that bounces more than 3 times without being released again stops and waits, so nothing ever ping-pongs forever.
 
 ### 4.4c Momentum (v0.3.3)
@@ -157,8 +163,8 @@ When the ball leaves a drop end at point `P`, it falls along `−y`. It lands on
 |---|---|---|
 | **Beam** | Straight block | Fixed or slider. |
 | **Elbow** | One quarter-pipe face | Rotatable (4 orientations) and/or slider. |
-| **Star** *(signature piece, from the video)* | Square with **four concave quarter-pipe faces**, extruded along one axis | Has 4 tips (N/E/S/W), and each face links two adjacent tips. 4-fold symmetric, so it's **slide-only**. The face used is the one whose normal at the entry tip matches the ball's incoming normal (the ball "stays on its side"). |
-| **Half-Star** | Two adjacent concave faces | Rotatable. Gives 4 distinct orientations. |
+| **Star** *(signature piece, from the video)* | **Two opposite concave blades** (NE and SW) crossing at the centre, extruded along one axis: four points (N/E/S/W) | Blade NE links tips N and E, blade SW links S and W. Slide-only. (v0.4: adjacent faces share a tip, so riding one would carry the ball through the other; four faces can't be physically ridden.) |
+| **Half-Star** | One concave blade | Same as an elbow; kept for level data. Two adjacent faces can't be ridden (see Star). |
 | **Rest pad** | Cradle on track | Ball stops and waits for a tap. |
 | **Hook (start)** | Small lever on top of the start pillar | Tap to release the ball. |
 | **Chime bowl (goal)** | Shallow bowl + bell | Win state. |
@@ -450,12 +456,8 @@ adb install -r seamline-debug.apk       # after downloading the CI artifact
 5. **Playtest:** 3–5 people who haven't seen the game. Record where they get stuck. Target: ≥ 80% finish L1–L5 without hints.
 
 ### 10.4 Definition of done (per level)
-- Passes the solver with the documented par.
-- Has no unintended shorter solutions.
-- No used perceptual join is covered on screen (§4.3).
-- Readable at phone size: joins visible, rails visible, ball never hidden for > 0.3 s.
+- Every box in the checklist of **`docs/LEVEL_DESIGN.md` §8** is ticked: the Laws (solver at par with a unique solution, the audit clean: no overlap and no hidden ball in any frame of any reachable state), the look test on a phone, pieces that belong and do two jobs, and the owner's sign-off.
 - Hint sequence works.
-- Playtested at least once.
 
 ### 10.5 Cloud builds (GitHub Actions; nothing native on the local PC)
 - **`ci.yml`** (every push / PR, `ubuntu-latest`): `npm ci` → lint → `npm test` → `npm run solve-all` → `npm run build` → Playwright e2e (headless). Uploads level screenshots as artifacts.
@@ -553,3 +555,4 @@ adb install -r seamline-debug.apk       # after downloading the CI artifact
 | 2026-10-20 | v0.3.1: **in-app update check** (GitHub Releases API, at most every 6 h, a Settings toggle, opens the APK download in the browser). This is the app's only network use. The owner chose not to back up the signing key for now; it lives in GitHub Secrets. | The owner wants anyone installing from Releases to get updates; the Play Store comes later. |
 | 2026-10-20 | v0.3.2: contact is checked continuously (every 0.06 units), so the ball reaches the obstacle before bouncing; the piece it hits wobbles and knocks. | Owner on device: in L2 the ball "won't go after a few steps" (the old check looked a whole segment ahead and turned around early). |
 | 2026-10-20 | v0.3.3: **momentum physics** (§4.4c) shared by the game and the solver. **L5 Hold rebuilt**: the same beam bridges A→P, then (slid to −1) carries the return leg of an upward U-turn to the bowl. No climbing; drop shortcuts ruled out (the solver's solution is unique at par 3). **Star blades are 0.25 thick** (per-segment depth), so no face covers another's lane. The ball is drawn 0.5 toward the camera so its own groove's lip can't hide it. Only end-to-end joins glow, as one fine line. | Owner playtest: L5 "goes up without any support… gravity doesn't work properly"; L3 "phasing through… not solvable". |
+| 2026-10-26 | v0.4.0: **nothing passes through anything.** Contact uses the exact drawn triangles (3D overlap + depth-buffer-style hiding) with no whole-piece exemptions; the ball is drawn at the nearer side near crossings, mid-track catches and seams; falls are drawn in front of everything and land continuously on the first visible floor; pieces can't be slid over the ball on screen; view turns that would hide the ball are refused. **The Star is two opposite blades** (adjacent faces share a tip, so the old four-blade star could only be ridden by passing through a blade). Pivot caps became a centred hub (a protruding cap covered the ball in L2 and L7). A new audit plays every reachable state frame by frame. **`docs/LEVEL_DESIGN.md`** written; Chapter 1 reviewed against it (all pass the Laws; pieces don't yet belong). | Owner on device: in L3 the ball "phases through" the star's edges and the solution "doesn't look like the right solution"; "this same type of problem exists all over the app"; draggable pieces "look out of place… should serve a purpose apart from solving". |

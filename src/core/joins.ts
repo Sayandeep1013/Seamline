@@ -1,6 +1,6 @@
 // The join rule (GAME_PLAN §4.3) and continuation priority (§4.4).
 import { AXES, type V3, VIEWS, add, scale, sub, viewMultiple } from './grid';
-import { type Dir, type Endpoint, type Segment, entryOf, lengthOf } from './track';
+import { type Dir, type Endpoint, type Segment, entryOf, exitOf, lengthOf } from './track';
 
 /** Returns k if exit A joins entry B in view v (A.p − B.p = k·v, same tangent, same normal), else null. */
 export function joinK(a: Pick<Endpoint, 'p' | 't' | 'n'>, b: Endpoint, v: V3): number | null {
@@ -78,4 +78,24 @@ export function findContinuation(
     }
   }
   return piece ?? physical ?? perceptual;
+}
+
+/**
+ * Which end faces are drawn: an open end's face is hidden while something joins onto it, and so is the
+ * face of the end it joins (so a seam looks seamless whichever side is nearer). Shared by render and physics.
+ */
+export function capsShown(world: JoinWorld): (seg: Segment, end: 0 | 1) => boolean {
+  const hidden = new Set<string>();
+  for (const seg of world.segments) {
+    if (!joinable(world, seg)) continue;
+    for (const dir of [1, -1] as const) {
+      const exit = exitOf(seg, dir);
+      if (exit.flag !== 'open') continue;
+      const c = findContinuation(world, exit, seg);
+      if (!c) continue;
+      hidden.add(`${seg.id}|${dir === 1 ? 1 : 0}`);
+      if (c.dist === 0) hidden.add(`${c.seg.id}|${c.dir === 1 ? 0 : 1}`);
+    }
+  }
+  return (seg, end) => !hidden.has(`${seg.id}|${end}`);
 }

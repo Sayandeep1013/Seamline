@@ -51,7 +51,8 @@ describe('L01 First Sight', () => {
 describe('falling and solidity', () => {
   const level = LEVELS[2]; // The Star: a capped pillar
   it('a capped end still bumps the ball back', () => {
-    const w = worldFor(level, { ST: { s: 1, r: 0 } }, 0);
+    // With the star in the player's hand nothing can catch the ball at the foot of the pillar.
+    const w = { ...worldFor(level, { ST: { s: 1, r: 0 } }, 0), moving: new Set(['ST']) };
     const r = simulate(w, { segId: 'P', dir: 1, dist: 4.5, mode: 'resting' });
     expect(r.events.some((e) => e.type === 'bump')).toBe(true);
   });
