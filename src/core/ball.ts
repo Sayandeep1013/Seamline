@@ -53,8 +53,12 @@ export interface BallWorld extends JoinWorld {
 
 const EPS = 1e-9;
 
-/** Around a perceptual crossing the ball is drawn at the nearer side's depth, this far either side. */
-export const CROSS_DRAW = 0.8;
+/**
+ * Around a perceptual crossing the ball is drawn at the nearer side's depth, this far either side. The two pieces
+ * overlap on screen near their ends (a slab's width runs diagonally), up to about 0.64 + the ball's radius along
+ * the track, so the ball keeps the nearer depth until it is clear of that.
+ */
+export const CROSS_DRAW = 1.0;
 /** The ball is drawn this far toward the camera (invisible on screen) so its own groove's lip never hides it. */
 export const BALL_LIFT = 0.5;
 

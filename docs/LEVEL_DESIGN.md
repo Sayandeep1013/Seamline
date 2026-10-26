@@ -164,15 +164,16 @@ structure snapping into that shape and the ball confirming it.
 
 ## 9. Review of Chapter 1 (2026-10-26, first pass)
 
-Played in the browser at phone size and on the owner's phone, with frame recordings of every solution run.
-After v0.4's physics fixes all seven levels pass the Laws (§2). The other sections are where the work is.
+All seven solution runs recorded frame by frame in the browser at phone size; L1–L3 also played on the owner's
+phone, including wrong attempts. After v0.4's physics fixes all seven levels pass the Laws (§2). The other
+sections are where the work is.
 
 | Level | Laws | Answer reads | Pieces belong | Two jobs | Verdict |
 |---|---|---|---|---|---|
 | L1 First Sight | ✓ | ✓ one straight beam | ✗ the beam floats on a dotted rail | exempt (teaches slide) | Anchor the beam |
 | L2 Turn | ✓ (hub fixed) | ✓ a clean J curve | ✗ the elbow floats beside the pillar | ✗ its start orientation does nothing | Mount the elbow on the pillar; make wrong turns send the ball somewhere |
 | L3 The Star | ✓ (star rebuilt) | ✓ pillar curves into the floor | ✗ floats on a dotted rail; the second blade has no job | ✗ only catches | Rework the star so both blades work; anchor its rail |
-| L4 Two Sights | ✓ | ~ the zigzag reads, the drop to the goal is unclear | ✗ two floating beams, plus a decoy block that looks random | ~ slider 1 has a decoy join | Make the decoy a meaningful ledge; anchor both beams |
+| L4 Two Sights | ✓ | ~ the zigzag reads, the drop to the goal is unclear | ✗ two floating beams; the decoy block sits over the goal bowl at the start | ~ slider 1 has a decoy join | Make the decoy a meaningful ledge that never covers the bowl; anchor both beams |
 | L5 Hold | ✓ | ✓ | ✗ floats | ✓ one beam, two jobs | Anchor the beam |
 | L6 Another Angle | ✓ | ~ | ✗ four separate floating blocks | ✗ | Rebuild as one structure that looks broken until the turn |
 | L7 Monument | ✓ | ~ | ✗ star and elbow float | ✗ | Rework with L3's star; frame view 1 (tiny on screen) |

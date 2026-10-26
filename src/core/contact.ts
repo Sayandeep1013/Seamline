@@ -167,20 +167,61 @@ function projected(seg: Segment, view: number) {
   return hit;
 }
 
-/** Points on the ball's disc (as offsets in screen units) where hiding is tested; the rim itself may be grazed. */
+/** Points on the ball's disc (as offsets in screen units) where hiding is tested. */
 const DISC: [number, number][] = [[0, 0]];
-for (const r of [0.45, 0.8]) for (let i = 0; i < 12; i++) DISC.push([Math.cos((i * Math.PI) / 6) * r * BALL_R, Math.sin((i * Math.PI) / 6) * r * BALL_R]);
+for (const r of [0.45, 0.7, 0.9]) for (let i = 0; i < 16; i++) DISC.push([Math.cos((i * Math.PI) / 8) * r * BALL_R, Math.sin((i * Math.PI) / 8) * r * BALL_R]);
+/** How far out from its centre (as a fraction of the radius) the ball must not be covered: only a hairline rim may be grazed. */
+const RIM = 0.92;
 
-/** Depth of triangle `o` of screen-space triangles `t` at (x, y), or null if (x, y) is outside it. */
-function depthIn(t: Float64Array, o: number, x: number, y: number): number | null {
+/** Depth of triangle `o` of screen-space triangles `t` at (x, y), or null if (x, y) is outside it (by more than `slack`). */
+function depthIn(t: Float64Array, o: number, x: number, y: number, slack = 1e-9): number | null {
   const x0 = t[o], y0 = t[o + 1], x1 = t[o + 3], y1 = t[o + 4], x2 = t[o + 6], y2 = t[o + 7];
   const den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
   if (Math.abs(den) < 1e-12) return null;
   const a = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / den;
   const b = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / den;
   const c = 1 - a - b;
-  if (a < -1e-9 || b < -1e-9 || c < -1e-9) return null;
+  if (a < -slack || b < -slack || c < -slack) return null;
   return a * t[o + 2] + b * t[o + 5] + c * t[o + 8];
+}
+
+/** Closest point of screen-space triangle `o` to (x, y). */
+function closestIn(t: Float64Array, o: number, x: number, y: number): [number, number] {
+  if (depthIn(t, o, x, y) !== null) return [x, y];
+  let best: [number, number] = [t[o], t[o + 1]], bd = Infinity;
+  for (const [i, j] of [[0, 3], [3, 6], [6, 0]]) {
+    const ax = t[o + i], ay = t[o + i + 1], ex = t[o + j] - ax, ey = t[o + j + 1] - ay;
+    const l2 = ex * ex + ey * ey;
+    const u = l2 > 0 ? Math.min(1, Math.max(0, ((x - ax) * ex + (y - ay) * ey) / l2)) : 0;
+    const px = ax + ex * u, py = ay + ey * u, d = (px - x) ** 2 + (py - y) ** 2;
+    if (d < bd) { bd = d; best = [px, py]; }
+  }
+  return best;
+}
+
+/**
+ * Does any screen-space triangle in `t` cover part of the ball (centre (bx, by), front of its centre at depth bd)?
+ * Sharp corners can poke into the disc between sample points, so each triangle's closest point to the centre is
+ * tested too: wherever a surface is over the ball's disc and nearer than the ball's own surface there, it hides it.
+ */
+function covers(t: Float64Array, bx: number, by: number, bd: number): boolean {
+  const lim = RIM * BALL_R, R2 = BALL_R * BALL_R;
+  for (let o = 0; o < t.length; o += 9) {
+    const minX = Math.min(t[o], t[o + 3], t[o + 6]), maxX = Math.max(t[o], t[o + 3], t[o + 6]);
+    const minY = Math.min(t[o + 1], t[o + 4], t[o + 7]), maxY = Math.max(t[o + 1], t[o + 4], t[o + 7]);
+    if (bx + BALL_R < minX || bx - BALL_R > maxX || by + BALL_R < minY || by - BALL_R > maxY) continue;
+    const [cx, cy] = closestIn(t, o, bx, by);
+    const d2 = (cx - bx) ** 2 + (cy - by) ** 2;
+    if (d2 < lim * lim) {
+      const z = depthIn(t, o, cx, cy, 1e-6);
+      if (z !== null && z > bd + Math.sqrt(R2 - d2) + HIDE) return true;
+    }
+    for (const [dx, dy] of DISC) {
+      const z = depthIn(t, o, bx + dx, by + dy);
+      if (z !== null && z > bd + Math.sqrt(R2 - dx * dx - dy * dy) + HIDE) return true;
+    }
+  }
+  return false;
 }
 
 /** The first segment that hides part of the ball drawn at `shown` (its centre, in world space). */
@@ -189,17 +230,9 @@ export function hiding(shown: readonly number[], segs: readonly Segment[], view:
   for (const seg of segs) {
     const pr = projected(seg, view);
     if (bx + BALL_R < pr.min[0] || bx - BALL_R > pr.max[0] || by + BALL_R < pr.min[1] || by - BALL_R > pr.max[1]) continue;
-    const lists = [pr.tri];
-    if (caps(seg, 0)) lists.push(pr.caps[0]);
-    if (caps(seg, 1)) lists.push(pr.caps[1]);
-    for (const [dx, dy] of DISC) {
-      // The ball's front surface at this point of its disc.
-      const front = bd + Math.sqrt(BALL_R * BALL_R - dx * dx - dy * dy);
-      for (const t of lists) for (let o = 0; o < t.length; o += 9) {
-        const d = depthIn(t, o, bx + dx, by + dy);
-        if (d !== null && d > front + HIDE) return seg;
-      }
-    }
+    if (covers(pr.tri, bx, by, bd)) return seg;
+    if (caps(seg, 0) && covers(pr.caps[0], bx, by, bd)) return seg;
+    if (caps(seg, 1) && covers(pr.caps[1], bx, by, bd)) return seg;
   }
   return null;
 }
@@ -210,13 +243,7 @@ export function hiddenByTris(shown: readonly number[], soups: readonly Float64Ar
   for (const soup of soups) {
     const t = new Float64Array(soup.length);
     for (let i = 0; i < soup.length; i += 3) t.set(toScreen([soup[i], soup[i + 1], soup[i + 2]], view), i);
-    for (const [dx, dy] of DISC) {
-      const front = bd + Math.sqrt(BALL_R * BALL_R - dx * dx - dy * dy);
-      for (let o = 0; o < t.length; o += 9) {
-        const d = depthIn(t, o, bx + dx, by + dy);
-        if (d !== null && d > front + HIDE) return true;
-      }
-    }
+    if (covers(t, bx, by, bd)) return true;
   }
   return false;
 }
