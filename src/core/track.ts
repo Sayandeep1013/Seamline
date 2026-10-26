@@ -23,17 +23,27 @@ export interface Segment {
   t0: Axis; n0: Axis;
   t1: Axis; n1: Axis;
   ends: readonly [EndFlag, EndFlag];
-  /** Slab thickness under the riding surface (default 0.6). The Star's blades are thin so they never cover each other's lanes. */
+  /** Slab thickness under the riding surface (default 0.6). */
   depth?: number;
-  /** Star blades taper: fine at the tips, swelling to `depth` mid-blade. */
-  taper?: boolean;
+  /**
+   * A quarter of the solid Star: the slab fills from the riding surface in to the star's two centre lines, so the
+   * four quarters together make one solid four-pointed star (zero thickness at the points, ~0.53 mid-face).
+   */
+  starQuarter?: boolean;
 }
 
 export const DEFAULT_DEPTH = 0.6;
 export const depthOf = (seg: Segment) => seg.depth ?? DEFAULT_DEPTH;
 /** Slab thickness at fraction `u` (0..1) along the segment: what is drawn and what the ball collides with. */
-export const depthAlong = (seg: Segment, u: number) =>
-  seg.taper ? 0.1 + (depthOf(seg) - 0.1) * Math.sin(Math.PI * u) : depthOf(seg);
+/** Radius of a Star face's surface: the ball's path (radius 1) plus the ball's radius. Also the star's point length. */
+export const STAR_R = 1 + 0.28;
+
+export function depthAlong(seg: Segment, u: number): number {
+  if (!seg.starQuarter) return depthOf(seg);
+  // The surface is a circle of radius STAR_R about the face's corner; follow its radius in until it meets a centre line.
+  const phi = (Math.PI / 2) * u;
+  return Math.max(0.01, STAR_R / Math.max(Math.cos(phi), Math.sin(phi)) - STAR_R);
+}
 
 export interface Endpoint {
   p: V3;

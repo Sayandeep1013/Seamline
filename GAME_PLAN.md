@@ -144,7 +144,7 @@ For other views, rotate the world point around `y` by −90°·n first.
 ### 4.5 Player verbs
 | Verb | Input | Applies to | Introduced |
 |---|---|---|---|
-| **Release** | Tap the hook / ball | Start socket, rest pads | L1 |
+| **Release** | Tap the ball (the start gate opens) | Start socket, rest pads | L1 |
 | **Slide** | Drag along a dotted rail; snaps to integer stops | Sliders, Stars, platforms | L1 |
 | **Rotate** | Tap the piece → 90° about its axis (animated, snaps) | Elbows, half-stars | L2 |
 | **Turn the world** | Swipe empty space horizontally → 90° view change (animated) | Levels with `views > 1` | L7 |
@@ -163,13 +163,13 @@ When the ball leaves a drop end at point `P`, it falls along `−y`. It lands on
 |---|---|---|
 | **Beam** | Straight block | Fixed or slider. |
 | **Elbow** | One quarter-pipe face | Rotatable (4 orientations) and/or slider. |
-| **Star** *(signature piece, from the video)* | **Two opposite concave blades** (NE and SW) crossing at the centre, extruded along one axis: four points (N/E/S/W) | Blade NE links tips N and E, blade SW links S and W. Slide-only. (v0.4: adjacent faces share a tip, so riding one would carry the ball through the other; four faces can't be physically ridden.) |
-| **Half-Star** | One concave blade | Same as an elbow; kept for level data. Two adjacent faces can't be ridden (see Star). |
+| **Star** *(signature piece, from the video)* | **One solid four-pointed star**, extruded along one axis, with four concave faces and points N/E/S/W | The ball rides inside a face, from beside one point round to beside the next, and never touches the next face. Slide-only. |
+| **Half-Star** | One face of the Star, solid to its centre lines | Same as an elbow; kept for level data. |
 | **Rest pad** | Cradle on track | Ball stops and waits for a tap. |
-| **Hook (start)** | Small lever on top of the start pillar | Tap to release the ball. |
+| **Gate (start)** | A bar across the track 0.6 ahead of the waiting ball, at its centre height, on a post bracketed to the side of the start beam | Tap the ball: the bar retracts into the post and the ball rolls a beat later. It never overlaps the ball on screen, in any view (`tests/hook.test.ts`). |
 | **Chime bowl (goal)** | Shallow bowl + bell | Win state. |
 
-Star face geometry, with the star centred at the origin and tips at N(0,1), E(1,0), S(0,−1), W(−1,0) in its local plane: face NE is an arc centred at (1,1), radius 1. Entering at N moving −y with normal +x, it exits at E moving +x with normal +y. The other faces mirror this.
+Star geometry, with the star centred at the origin of its local plane and R = 1 + ball radius = 1.28: the points are at N(0,R), E(R,0), S(0,−R), W(−R,0), and face NE is a circle of radius R about the corner (R,R) (the other faces mirror it). The solid is everything outside the four circles, so each face meets the next at a sharp point. The ball's path on face NE is the radius-1 arc about (R,R): it enters beside N at (0.28, R) moving −y with normal +x and leaves beside E at (R, 0.28) moving +x with normal +y, so it touches the point but never the next face. (v0.3's star put the paths' ends on the points themselves, so riding one face meant passing through the next.)
 
 ---
 
@@ -203,7 +203,7 @@ Each level teaches or twists exactly **one** idea. Par = minimum moves (slides, 
   - Start socket at `(0,0,0)`. Fixed Beam A: `(0,0,0) → (3,0,0)`, `t=+x`, `n=+y`.
   - Slider Beam B: `(4,1,z) → (7,1,z)`, `t=+x`, `n=+y`, rail `z ∈ {−1,0,1,2}`, starts at `z=−1`. Goal bowl at B's far end.
   - Solution `z=1`: `A.end − B.start = (3,0,0) − (4,1,1) = (−1,−1,−1) = −1·v0` ✔, with direction and normal equal ✔.
-- **Solution:** drag B to the glowing stop → tap the hook. **Par 1.**
+- **Solution:** drag B to the glowing stop → tap the ball. **Par 1.**
 - **Aha:** "It's not touching… but it worked."
 - **Feedback:** the seam flashes white when aligned, plus a chime and haptic tick. The first crossing ever plays at 0.4× speed.
 
@@ -214,7 +214,7 @@ Each level teaches or twists exactly **one** idea. Par = minimum moves (slides, 
 - **Decoy:** one wrong orientation leads onto a long beam that *almost* lines up with the goal but is off by one stop. This teaches that a near miss isn't a join.
 
 ### L3 — "The Star" *(teaches: the Star intercepting a falling ball; homage to the video)*
-- **Scene:** exactly the video: mustard background, a tall yellow pillar with the hook on top, and a floor running right. The floor visibly starts **too high and too far back** to ever be reached. A Star sits on a vertical rail alongside the pillar.
+- **Scene:** exactly the video: mustard background, a tall yellow pillar with the start gate on top, and a floor running right. The floor visibly starts **too high and too far back** to ever be reached. A Star sits on a vertical rail alongside the pillar.
 - **Pieces:** 1 Star (slider, vertical rail, 6 stops).
 - **Critical join:** the ball descends the pillar (`t=−y`, `n=+x`). At the stop where the Star's N tip is on the pillar line, it intercepts, the NE face turns the ball to `t=+x, n=+y`, and the E tip **perceptually joins** the high floor (`E.p − floor.start = k·v0`). Only one stop satisfies both.
 - **Decoy:** a lower floor that physically connects at the pillar foot leads to a dead end under a ledge.
@@ -307,7 +307,7 @@ Total first-chapter playtime: about 20–25 minutes.
 
 | Asset | How it's made | Notes |
 |---|---|---|
-| Beams, arcs, Star, Half-Star, Elbow, pads, hook, chime bowl | **Procedural geometry in code** (Three.js `ExtrudeGeometry` / `LatheGeometry` from 2D shapes) | Crisp at any resolution, tiny download, editable by parameters. |
+| Beams, arcs, Star, Half-Star, Elbow, pads, start gate, chime bowl | **Procedural geometry in code** (Three.js `ExtrudeGeometry` / `LatheGeometry` from 2D shapes) | Crisp at any resolution, tiny download, editable by parameters. |
 | Ball | Sphere + toon shading + specular dot | |
 | Three-tone face shader | Custom GLSL | Colours per chapter from the palette. |
 | Seam glow, particles on solve | Shader / sprite particles | |
@@ -556,3 +556,4 @@ adb install -r seamline-debug.apk       # after downloading the CI artifact
 | 2026-10-20 | v0.3.2: contact is checked continuously (every 0.06 units), so the ball reaches the obstacle before bouncing; the piece it hits wobbles and knocks. | Owner on device: in L2 the ball "won't go after a few steps" (the old check looked a whole segment ahead and turned around early). |
 | 2026-10-20 | v0.3.3: **momentum physics** (§4.4c) shared by the game and the solver. **L5 Hold rebuilt**: the same beam bridges A→P, then (slid to −1) carries the return leg of an upward U-turn to the bowl. No climbing; drop shortcuts ruled out (the solver's solution is unique at par 3). **Star blades are 0.25 thick** (per-segment depth), so no face covers another's lane. The ball is drawn 0.5 toward the camera so its own groove's lip can't hide it. Only end-to-end joins glow, as one fine line. | Owner playtest: L5 "goes up without any support… gravity doesn't work properly"; L3 "phasing through… not solvable". |
 | 2026-10-26 | v0.4.0: **nothing passes through anything.** Contact uses the exact drawn triangles (3D overlap + depth-buffer-style hiding) with no whole-piece exemptions; the ball is drawn at the nearer side near crossings, mid-track catches and seams; falls are drawn in front of everything and land continuously on the first visible floor; pieces can't be slid over the ball on screen; view turns that would hide the ball are refused. **The Star is two opposite blades** (adjacent faces share a tip, so the old four-blade star could only be ridden by passing through a blade). Pivot caps became a centred hub (a protruding cap covered the ball in L2 and L7). A new audit plays every reachable state frame by frame. **`docs/LEVEL_DESIGN.md`** written; Chapter 1 reviewed against it (all pass the Laws; pieces don't yet belong). | Owner on device: in L3 the ball "phases through" the star's edges and the solution "doesn't look like the right solution"; "this same type of problem exists all over the app"; draggable pieces "look out of place… should serve a purpose apart from solving". |
+| 2026-10-26 | v0.4.0, before release: **the Star is one solid four-pointed star** (§4.7). Each face is a slab reaching in to the star's centre lines, and the ball's path stays 0.28 clear of the points, so all four faces are rideable and nothing passes through. **The start gate** replaces the hook: a bar 0.6 ahead of the ball that retracts into its post (a lifting boom sat between the camera and the ball; a swinging one covered the ball on L7's first bend in view 1). The audit now includes the gate, and `tests/hook.test.ts` checks it never overlaps the waiting ball in any view. | Owner on device: the two-blade star "doesn't look like it belongs there"; at the solution the floor "merges properly but the vertical one doesn't… the reversed U shape"; "the ball and the ball release handle… those overlap, in every level". |

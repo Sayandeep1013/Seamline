@@ -13,7 +13,7 @@ import { type Segment, exitOf, frameAt, lengthOf, place } from '../core/track';
 import { type Spring, activeTweens, cancelAllTweens, damp, ease, reducedMotion, stepSpring, tween, updateTweens } from '../anim/motion';
 import { sound } from '../audio/sound';
 import {
-  BALL_R, bowlParts, hookParts, nubGeometry, padGeometry, pivotGeometry, seamGeometry, trackGeometry,
+  BALL_R, HOOK_LEAD, HOOK_LIFT, HOOK_STUB, bowlParts, hookParts, nubGeometry, padGeometry, pivotGeometry, seamGeometry, trackGeometry,
 } from '../render/geometry';
 import {
   backgroundMesh, ballMaterial, blobShadowMaterial, depthUniforms, dustMotes, seamGlowMaterial, toneMaterial, toneVariant,
@@ -279,7 +279,7 @@ export class Game {
     post.position.copy(h.postAt);
     const arm = new THREE.Mesh(h.arm, tone);
     arm.position.copy(h.pivot);
-    arm.userData = { axis: h.hingeAxis, side: h.side };
+    arm.quaternion.copy(h.orient);
     this.hookArm = arm;
     g.add(post, arm);
   }
@@ -645,7 +645,9 @@ export class Game {
     haptic('light');
     const arm = this.hookArm;
     if (arm && fromStart) {
-      tween(0, arm.userData.side * 1.25, 0.32, (a) => arm.quaternion.setFromAxisAngle(arm.userData.axis, a), { ease: ease.outCubic, tag: 'hook' });
+      // The bar retracts first; the ball waits a beat so it never rolls into it (tests/hook.test.ts).
+      tween(1, HOOK_STUB, HOOK_LIFT, (s) => (arm.scale.z = s), { ease: ease.outCubic, tag: 'hook' });
+      this.pauseFor = HOOK_LEAD;
     }
   }
 
@@ -785,8 +787,7 @@ export class Game {
   private lowerHook() {
     const arm = this.hookArm;
     if (!arm) return;
-    const current = 2 * Math.acos(Math.min(1, Math.abs(arm.quaternion.w))) * arm.userData.side;
-    tween(current, 0, 0.45, (a) => arm.quaternion.setFromAxisAngle(arm.userData.axis, a), { ease: ease.inOutSine, tag: 'hook' });
+    tween(arm.scale.z, 1, 0.45, (s) => (arm.scale.z = s), { ease: ease.inOutSine, tag: 'hook' });
   }
 
   /** Reveal the next move of a shortest solution from the current position (GAME_PLAN §5). */

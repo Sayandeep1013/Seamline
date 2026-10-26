@@ -46,7 +46,7 @@ function frames(seg: Segment) {
 }
 
 const cache = new Map<string, Shape>();
-const shapeKey = (s: Segment) => `${s.kind}|${s.from}|${s.to}|${s.t0}|${s.n0}|${s.ends}|${s.depth ?? ''}|${s.taper ?? ''}`;
+const shapeKey = (s: Segment) => `${s.kind}|${s.from}|${s.to}|${s.t0}|${s.n0}|${s.ends}|${s.depth ?? ''}|${s.starQuarter ?? ''}`;
 
 /** The segment's slab as drawn: riding surface BALL_R under the ball path, then its depth, BEAM_W wide. */
 export function shapeOf(seg: Segment): Shape {
@@ -81,7 +81,7 @@ export function shapeOf(seg: Segment): Shape {
 }
 
 /** Squared distance from point p to triangle (a, b, c) (Ericson, Real-Time Collision Detection 5.1.5). */
-function triDist2(p: P, t: Float64Array, o: number): number {
+export function triDist2(p: P, t: Float64Array, o: number): number {
   const ax = t[o], ay = t[o + 1], az = t[o + 2];
   const abx = t[o + 3] - ax, aby = t[o + 4] - ay, abz = t[o + 5] - az;
   const acx = t[o + 6] - ax, acy = t[o + 7] - ay, acz = t[o + 8] - az;

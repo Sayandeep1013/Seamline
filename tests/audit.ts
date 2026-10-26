@@ -3,10 +3,10 @@
 // "watch it like a player" check: it tests the exact triangles that are drawn, with no exemptions.
 import { type BallEvent, type BallState, PHYS, drawnAt, inView, stepBall } from '../src/core/ball';
 import { hiddenByTris, hiding, overlapping } from '../src/core/contact';
-import { nubGeometry, pivotGeometry } from '../src/render/geometry';
+import { HOOK_STUB, hookParts, nubGeometry, pivotGeometry } from '../src/render/geometry';
 import { pieceSegments } from '../src/core/level';
 import { rot90 } from '../src/core/grid';
-import type { BufferGeometry } from 'three';
+import { type BufferGeometry, Vector3 } from 'three';
 import { VIEWS, type V3 } from '../src/core/grid';
 import { capsShown, findContinuation } from '../src/core/joins';
 import { type LevelDef, type PieceStates, initialStates, startSegment } from '../src/core/level';
@@ -55,6 +55,29 @@ function fallFrames(ev: Extract<BallEvent, { type: 'fall' }>, exitT: V3, speed: 
   return out;
 }
 
+/** A geometry's triangles as a flat world-space soup, after `map` moves each vertex. */
+function soupOf(g: BufferGeometry, map: (p: [number, number, number]) => [number, number, number] = (p) => p): Float64Array {
+  const pos = g.getAttribute('position'), idx = g.getIndex();
+  const n = idx ? idx.count : pos.count;
+  const soup = new Float64Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const j = idx ? idx.getX(i) : i;
+    soup.set(map([pos.getX(j), pos.getY(j), pos.getZ(j)]), i * 3);
+  }
+  return soup;
+}
+
+/** The start gate's post and bar, with `bar` of the bar showing (1 = closed across the track), as drawn. */
+export function hookSoups(level: LevelDef, bar: number): Float64Array[] {
+  const h = hookParts(startSegment(level), VIEWS[level.startView]);
+  const post = soupOf(h.post, ([x, y, z]) => [x + h.postAt.x, y + h.postAt.y, z + h.postAt.z]);
+  const arm = soupOf(h.arm, (p) => {
+    const v = new Vector3(p[0], p[1], p[2] * bar).applyQuaternion(h.orient).add(h.pivot);
+    return [v.x, v.y, v.z];
+  });
+  return [post, arm];
+}
+
 /** World-space triangles of a piece's knobs and handles, as drawn (they're built once, facing the start view). */
 function decorations(level: LevelDef, states: PieceStates): Float64Array[] {
   const v0 = VIEWS[level.startView];
@@ -65,12 +88,7 @@ function decorations(level: LevelDef, states: PieceStates): Float64Array[] {
     if (def.rotate) geos.push(pivotGeometry(def.rotate.pivot as V3));
     const st = states[def.id];
     for (const g of geos) {
-      const pos = g.getAttribute('position'), idx = g.getIndex();
-      const n = idx ? idx.count : pos.count;
-      const soup = new Float64Array(n * 3);
-      for (let i = 0; i < n; i++) {
-        const j = idx ? idx.getX(i) : i;
-        let p: [number, number, number] = [pos.getX(j), pos.getY(j), pos.getZ(j)];
+      out.push(soupOf(g, (p) => {
         if (def.rotate) {
           // Quarter turns about the pivot (rot90 on the offset, fractional coordinates are fine).
           const pv = def.rotate.pivot;
@@ -78,12 +96,12 @@ function decorations(level: LevelDef, states: PieceStates): Float64Array[] {
           p = [r[0] + pv[0], r[1] + pv[1], r[2] + pv[2]];
         }
         if (def.slide) { const a = def.slide.axis === 'x' ? 0 : def.slide.axis === 'y' ? 1 : 2; p[a] += st.s; }
-        soup.set(p, i * 3);
-      }
-      out.push(soup);
+        return p;
+      }));
     }
   }
-  return out;
+  // Once the ball is rolling the start gate is open (tests/hook.test.ts checks it closed and while it swings).
+  return [...out, ...hookSoups(level, HOOK_STUB)];
 }
 
 /** Play one release from `start` and return the first violation, if any. */

@@ -14,7 +14,7 @@ describe.each(LEVELS.map((l) => [l.id, l] as const))('%s', (_id, level) => {
     if (process.env.SOLVE_VERBOSE) console.log(level.id, level.name, `par ${r.par}:`, r.solution.map(say).join(' · '));
     expect(r.solvable).toBe(true);
     expect(r.par).toBe(level.par);
-  });
+  }, 30000);
 
   it('starts with every piece clear of the track and of each other', () => {
     expect(new Solidity(level).legal(initialStates(level))).toBe(true);

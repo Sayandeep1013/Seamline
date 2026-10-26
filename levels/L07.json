@@ -134,11 +134,7 @@
     {
       "id": "ST",
       "shape": "star",
-      "center": [
-        2,
-        0,
-        4
-      ],
+      "center": [2, -0.28, 3.72],
       "plane": "x",
       "slide": {
         "axis": "y",

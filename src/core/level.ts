@@ -1,6 +1,7 @@
 // Level schema (GAME_PLAN §9.3), loading and validation.
 import { AXES, type Axis, type AxisName, type V3, add, key, scale } from './grid';
-import { type EndFlag, type Segment, arc, place, straight } from './track';
+import { BALL_R } from './contact';
+import { type EndFlag, STAR_R, type Segment, arc, place, straight } from './track';
 
 type P3 = [number, number, number];
 
@@ -54,32 +55,30 @@ function buildSegment(d: SegmentDef, pieceId: string | null): Segment {
   return arc(d.id, pieceId, d.type, d.from, d.t, d.n, ends);
 }
 
-export const STAR_BLADE = 0.25;
-
 /** In-plane axes (u, v) for a star lying across `plane` (the axis it's extruded along). */
 const STAR_PLANE: Record<AxisName, [Axis, Axis]> = { z: ['+x', '+y'], x: ['+z', '+y'], y: ['+x', '+z'] };
 
 /**
- * The Star: two opposite concave blades crossing at its centre, giving four points at ±u, ±v (GAME_PLAN §4.7).
- * Blade NE runs from tip N (moving −v, riding on +u) round to tip E; blade SW from S round to W.
+ * The Star: a solid four-pointed star whose points are at ±STAR_R along u and v, its four concave faces
+ * circles of radius STAR_R about the corners (±STAR_R, ±STAR_R) (GAME_PLAN §4.7). The ball rides inside a face,
+ * on a path of radius 1 that starts and ends BALL_R to the side of the points, so it never touches the next face.
+ * Face NE: from beside point N (moving −v, riding on +u) round to beside point E (moving +u, riding on +v).
  */
 function starFaces(p: PieceDef): Segment[] {
   const [u, v] = STAR_PLANE[p.plane ?? 'z'];
   const U = AXES[u], Vv = AXES[v];
   const c = p.center!;
   const neg = (a: Axis) => (a[0] === '+' ? '-' : '+') + a[1] as Axis;
+  // Each face starts beside its point: STAR_R out along the point, BALL_R off the surface along the riding normal.
+  const beside = (point: V3, n: V3) => add(add(c, scale(point, STAR_R)), scale(n, BALL_R));
   const all: Record<StarFace, [V3, Axis, Axis]> = {
-    ne: [add(c, Vv), neg(v), u],
-    es: [add(c, U), neg(u), neg(v)],
-    sw: [add(c, scale(Vv, -1)), v, neg(u)],
-    wn: [add(c, scale(U, -1)), u, v],
+    ne: [beside(Vv, U), neg(v), u],
+    es: [beside(U, scale(Vv, -1)), neg(u), neg(v)],
+    sw: [beside(scale(Vv, -1), scale(U, -1)), v, neg(u)],
+    wn: [beside(scale(U, -1), Vv), u, v],
   };
-  // Two opposite blades, never adjacent ones: adjacent faces share a tip, so riding one would carry the ball
-  // straight through the other. Opposite blades cross at the hub but each keeps its lane clear (GAME_PLAN §4.7).
-  const faces = p.faces ?? (p.shape === 'star' ? ['ne', 'sw'] : ['ne']);
-  // Thin blades (0.25): a face's slab must never reach into a neighbouring face's ball lane, or the ball
-  // would look like it's inside the star.
-  return faces.map((f) => ({ ...arc(`${p.id}.${f}`, p.id, 'concave', all[f][0], all[f][1], all[f][2], ['open', 'open']), depth: STAR_BLADE, taper: true }));
+  const faces = p.faces ?? (p.shape === 'star' ? ['ne', 'es', 'sw', 'wn'] : ['ne']);
+  return faces.map((f) => ({ ...arc(`${p.id}.${f}`, p.id, 'concave', all[f][0], all[f][1], all[f][2], ['open', 'open']), starQuarter: true }));
 }
 
 export function pieceSegments(p: PieceDef): Segment[] {

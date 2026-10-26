@@ -12,7 +12,7 @@
     { "id": "H", "type": "straight", "from": [7, 6, 4], "to": [10, 6, 4], "n": "+y", "ends": ["open", "goal"] }
   ],
   "pieces": [
-    { "id": "ST", "shape": "star", "center": [4, 0, 2], "plane": "z",
+    { "id": "ST", "shape": "star", "center": [3.72, -0.28, 2], "plane": "z",
       "slide": { "axis": "y", "stops": [1, 2, 3, 4], "initial": 1 } }
   ],
   "restPads": [],

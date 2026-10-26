@@ -1,5 +1,6 @@
 // Procedural meshes for each piece family (GAME_PLAN §8). Everything is swept along the track data.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { V3 } from '../core/grid';
 import { type EndFlag, type Segment, depthAlong, frameAt, lengthOf } from '../core/track';
 
@@ -146,23 +147,48 @@ export function pivotGeometry(pivot: V3) {
   return g;
 }
 
-/** Start hook: a post beside the start with an arm across the track that swings up on release. */
+/** How far ahead of the waiting ball the start gate crosses the track. */
+export const HOOK_AHEAD = 0.6;
+/** How much of the bar still shows when the gate is open (it retracts into its post). */
+export const HOOK_STUB = 0.08;
+/** Seconds the gate takes to open (ease out cubic), and how long the ball waits after it starts opening. */
+export const HOOK_LIFT = 0.28;
+export const HOOK_LEAD = 0.12;
+
+/**
+ * Start gate: a short post on a bracket at the side of the start beam and a bar across the track at the ball's centre
+ * height, HOOK_AHEAD in front of it, that retracts into the post on release. In an isometric view anything level
+ * with the ball and at least that far ahead, or beside the beam, is clear of the ball on screen (>= 0.04 gap), so
+ * the two never overlap, and a retracting bar only ever covers less than the closed one. (Moving the bar out of
+ * the way doesn't work: lifted, it sits between the camera and the ball; swung open, it sticks out past the start
+ * and covers the ball going round the first bend in another view.) The post goes on the side facing the start
+ * view; on the far side its foot would sit behind the ball. tests/hook.test.ts checks all this.
+ *
+ * The bar is built in the gate's own frame (x along the track, y up, z across) so it can retract along z;
+ * place it with `orient` at `pivot`.
+ */
 export function hookParts(seg: Segment, view: V3) {
   const f = frameAt(seg, 1, 0);
   const t = vec(f.t), n = vec(f.n), w = new THREE.Vector3().crossVectors(t, n);
   const side: 1 | -1 = w.dot(vec(view)) >= 0 ? 1 : -1;
-  const base = vec(f.p).addScaledVector(t, 0.42).addScaledVector(n, -BALL_R).addScaledVector(w, side * (BEAM_W / 2 - 0.08));
-  const postH = BALL_R * 2 + 0.12;
-  const post = new THREE.BoxGeometry(0.12, postH, 0.12);
-  post.translate(0, postH / 2, 0);
-  const armLen = BEAM_W - 0.12;
+  const out = BEAM_W / 2 + 0.12;
+  const foot = -BALL_R - 0.22, top = 0.06;
+  const base = vec(f.p).addScaledVector(t, HOOK_AHEAD).addScaledVector(n, foot).addScaledVector(w, side * out);
+  // The post stands clear of the beam (so the ball passing it keeps a gap on screen), on a low bracket bolted to it.
+  const upright = new THREE.BoxGeometry(0.11, top - foot, 0.11);
+  upright.translate(0, (top - foot) / 2, 0);
+  const reach = out - BEAM_W / 2;
+  const bracket = new THREE.BoxGeometry(0.11, 0.1, reach);
+  bracket.translate(0, 0.05, -side * reach / 2);
+  const post = mergeGeometries([upright, bracket])!;
+  const armLen = out + BEAM_W / 2;
   const arm = new THREE.BoxGeometry(0.09, 0.09, armLen);
   arm.translate(0, 0, -side * armLen / 2);
   const basis = new THREE.Matrix4().makeBasis(t, n, w);
   post.applyMatrix4(basis);
-  arm.applyMatrix4(basis);
-  const pivot = base.clone().addScaledVector(n, postH - 0.06);
-  return { post, postAt: base, arm, pivot, hingeAxis: t.clone(), side };
+  const orient = new THREE.Quaternion().setFromRotationMatrix(basis);
+  const pivot = base.clone().addScaledVector(n, -foot);
+  return { post, postAt: base, arm, pivot, orient };
 }
 
 /** Shallow chime bowl sitting on the surface at the goal end. */

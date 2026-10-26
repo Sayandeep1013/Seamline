@@ -172,7 +172,7 @@ sections are where the work is.
 |---|---|---|---|---|---|
 | L1 First Sight | ✓ | ✓ one straight beam | ✗ the beam floats on a dotted rail | exempt (teaches slide) | Anchor the beam |
 | L2 Turn | ✓ (hub fixed) | ✓ a clean J curve | ✗ the elbow floats beside the pillar | ✗ its start orientation does nothing | Mount the elbow on the pillar; make wrong turns send the ball somewhere |
-| L3 The Star | ✓ (star rebuilt) | ✓ pillar curves into the floor | ✗ floats on a dotted rail; the second blade has no job | ✗ only catches | Rework the star so both blades work; anchor its rail |
+| L3 The Star | ✓ (solid star) | ✓ pillar flows through the star into the floor, both joins seamless | ~ the star now sits on the pillar like a bracket; its rail is still dotted; three of its four faces are unused | ✗ only catches | Give the other faces a job; anchor its rail |
 | L4 Two Sights | ✓ | ~ the zigzag reads, the drop to the goal is unclear | ✗ two floating beams; the decoy block sits over the goal bowl at the start | ~ slider 1 has a decoy join | Make the decoy a meaningful ledge that never covers the bowl; anchor both beams |
 | L5 Hold | ✓ | ✓ | ✗ floats | ✓ one beam, two jobs | Anchor the beam |
 | L6 Another Angle | ✓ | ~ | ✗ four separate floating blocks | ✗ | Rebuild as one structure that looks broken until the turn |
